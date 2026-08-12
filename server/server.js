@@ -254,7 +254,12 @@ app.post('/api/auth/logout', async (req, res) =>{
     const refreshToken = req.cookies.refreshToken;
 
     if(refreshToken) {
-        await db.update(refreshTokens).set({revoked:true}).where(eq(refreshTokens.token, refreshToken))
+        try{
+            await db.update(refreshTokens).set({revoked:true}).where(eq(refreshTokens.token, refreshToken))
+        }catch (err){
+            console.error('Error revoking token in DB:', err);
+        }
+        
     }
 
     res.clearCookie('accessToken', ACCESS_COOKIE_OPTIONS);

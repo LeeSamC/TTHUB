@@ -2,16 +2,31 @@ import {createRouter, createWebHistory} from 'vue-router';
 import Login from './views/Login.vue';
 import Register from './views/Register.vue';
 import Profile from './views/Profile.vue';
+import Home from './views/Home.vue'
 import api from './api'
+import { meta } from 'zod/v4/core';
 
 const routes = [
-    {path: '/', redirect: '/login'},
-    {path: '/login', component: Login},
-    {path: '/register', component: Register},
+    {path: '/', redirect:'/home'},
+    {
+        path: '/login', 
+        component: Login,
+        meta: {layout: 'auth'}
+    },
+    {
+        path: '/register', 
+        component: Register,
+        meta: {layout: 'auth'}
+    },
+    {
+        path: '/home',
+        component: Home,
+        meta: { layout: 'default', requiresAuth: true}
+    },
     {
         path: '/profile',
         component: Profile,
-        meta: {requiresAuth: true}
+        meta: {layout: 'default', requiresAuth: true}
     },
 ];
 

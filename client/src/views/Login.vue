@@ -16,7 +16,7 @@ const handleLogin = async () => {
             password: password.value,
         });
         
-        router.push('/profile');
+        router.push('/home');
     }catch (err) {
         errorMsg.value = err.response?.data?.error || 'Login failed'
     }
