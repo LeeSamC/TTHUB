@@ -87,7 +87,9 @@ const ACCESS_COOKIE_OPTIONS = {
 
     //Control when broswers send cookies - lax = Default
     sameSite: 'lax',
-    maxAge: 15 * 60 * 1000
+    maxAge: 15 * 60 * 1000,
+
+    path: '/'
 }
 
 const REFRESH_COOKIE_OPTIONS = {
@@ -138,13 +140,19 @@ const loginSchema = z.object({
     password: z.string().min(1, "Password is required")
 })
 
+const updateSchema = z.object({
+    firstName: z.string().min(1, "First name is required"),
+    lastName: z.string().min(1, "Last name is required"),
+    username: z.string().min(3, "Username must be at least 3 charachers"),
+})
+
 
 // ============================================================
 // ACCESS TOKEN AUTHENTICATION MIDDLEWARE
 // ============================================================
 
 //Protects routes that require authentication
-const authenicateToken = (req, res, next) => {
+const authenticateToken = (req, res, next) => {
     const accessToken = req.cookies.accessToken;
 
     if(!accessToken){
@@ -268,17 +276,15 @@ app.post('/api/auth/logout', async (req, res) =>{
 })
 
 
-app.get('/api/profile', authenicateToken, async (req, res) => {
+app.get('/api/profile', authenticateToken, async (req, res) => {
 
     const currentUserId = req.user.userId
 
     try{
         const result = await db.select({
-            userId: users.userId,
             firstName: users.firstName,
             lastName: users.lastName,
             username: users.username,
-            createdAt: users.createdAt,
             }).from(users).where(eq(users.userId, currentUserId));
         
         if (result.length === 0 ) {
@@ -289,6 +295,67 @@ app.get('/api/profile', authenicateToken, async (req, res) => {
 
     }catch (error) {
         res.status(500).json({error: 'Failed to retrieve profile'})
+    }
+})
+
+app.patch('/api/profile/update', authenticateToken, async (req, res) => {
+    const currentUserId = req.user.userId
+    const validation = updateSchema.safeParse(req.body)
+
+    if(!validation.success){
+        return res.status(400).json({error: 'Invalid input data', details: validation.error.flatten().fieldErrors})
+    }
+
+    if(Object.keys(validation.data).length === 0) {
+        return res.status(400).json({error: 'No field provided to update'})
+    }
+
+    try{
+        const updatedUser = await db.update(users).set(validation.data).where(eq(users.userId, currentUserId)).returning({firstName: users.firstName, lastName: users.lastName, username: users.username})
+
+        if(updatedUser.length === 0) {
+            return res.status(404).json({error: 'User not found'})
+        }
+
+        res.status(200).json({message: 'Successfully Updated ', user: updatedUser[0]})
+    }catch (error) {
+        console.log('Update Error', error)
+        res.status(500).json({error: 'Server Error'})
+    }
+})
+
+app.delete('/api/profile/delete', authenticateToken, async (req,res) => {
+    const currentUserId = req.user.userId
+    const {password} = req.body
+
+    if(!password){
+        return res.status(400).json({error: 'Password confirmation is required'})
+    }
+
+    try{
+        const currentUser = await db.select({userId: users.userId, passwordHash: users.password}).from(users).where(eq(users.userId, currentUserId))
+
+        if (currentUser.length === 0){
+            return res.status(404).json({error:'User cannot be found '})
+        }
+
+        const user = currentUser[0]
+
+        const isPasswordValid = await bcrypt.compare(password, user.passwordHash)
+        if(!isPasswordValid){
+            return res.status(401).json({error: 'Incorrect Password'})
+        }
+
+        await db.delete(users).where(eq(users.userId, currentUserId))
+        
+
+        res.clearCookie('accessToken', ACCESS_COOKIE_OPTIONS)
+        res.clearCookie('refreshToken', REFRESH_COOKIE_OPTIONS)
+
+        res.status(200).json({message: 'Successfully deleted user'})
+    }catch (err) {
+        console.log(err)
+        res.status(500).json({error: 'Cannot delete user'})
     }
 })
 
