@@ -169,6 +169,7 @@ const authenticateToken = (req, res, next) => {
 
 };
 
+
 app.post('/api/auth/register', async (req, res) => {
     const validation = registerSchema.safeParse(req.body)
     if(!validation.success) {
@@ -360,6 +361,4 @@ app.delete('/api/profile/delete', authenticateToken, async (req,res) => {
 })
 
 
-app.listen(3000, () => {
-    console.log(`Server is running on http://localhost:3000`)
-})
+module.exports = app
