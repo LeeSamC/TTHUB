@@ -1,27 +1,32 @@
 import {createRouter, createWebHistory} from 'vue-router';
-import Login from './views/Login.vue';
-import Register from './views/Register.vue';
-import Profile from './views/Profile.vue';
-import Home from './views/Home.vue'
-import api from './api'
+import Login from '../views/Login.vue';
+import Register from '../views/Register.vue';
+import Profile from '../views/Profile.vue';
+import Home from '../views/Home.vue'
+import api from '../api/api.js'
 import { meta } from 'zod/v4/core';
 
 const routes = [
-    {path: '/', redirect:'/home'},
+    {
+        path: '/', 
+        name: 'Home',
+        component: Home,
+        meta: { layout: 'default', requiresAuth: false}
+
+    },
     {
         path: '/login', 
         component: Login,
-        meta: {layout: 'auth'}
+        meta: {layout: 'auth', requiresAuth: false}
     },
     {
         path: '/register', 
         component: Register,
-        meta: {layout: 'auth'}
+        meta: {layout: 'auth', requiresAuth: false}
     },
     {
         path: '/home',
-        component: Home,
-        meta: { layout: 'default', requiresAuth: true}
+        redirect: '/'
     },
     {
         path: '/profile',
@@ -36,17 +41,20 @@ const router = createRouter({
     routes,
 });
 
-router.beforeEach(async (to, from) => {
-    if(to.meta.requiresAuth) {
-        try{
-            await api.get('/profile');
-            return true;
-        }catch (err) {
-            return '/login'
-        }
+router.beforeEach(async (to) => {
+
+    if(!to.meta.requiresAuth) {
+        return true
     
     }
-    return true;
+
+    try{
+            await api.get('/profile');
+            return true;
+    }catch (err) {
+            return { name: 'Home'}
+        }
+
 })
 
 export default router

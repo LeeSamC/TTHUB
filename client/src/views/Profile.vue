@@ -1,7 +1,7 @@
 <script setup>
 import {ref, reactive, onMounted} from 'vue'
 import {useRouter} from 'vue-router'
-import api from '../api'
+import api from '../api/api'
 import { success } from 'zod'
 
 const router = useRouter()

@@ -1,4 +1,16 @@
-const { pgTable, uuid, varchar, timestamp, boolean } = require('drizzle-orm/pg-core')
+const { 
+    pgTable, 
+    uuid, 
+    varchar, 
+    timestamp, 
+    boolean, 
+    text,
+    integer,
+    primaryKey,
+    pgEnum
+} = require('drizzle-orm/pg-core');
+
+
 
 const users = pgTable('users', {
     userId: uuid('user_id').defaultRandom().primaryKey(),
@@ -19,4 +31,57 @@ const refreshTokens = pgTable('refresh_tokens', {
 
 })
 
-module.exports = {users, refreshTokens};
+const posts = pgTable('post', {
+    postId: uuid('post_id').defaultRandom().primaryKey(),
+    userId: uuid('user_id').notNull().references(() => users.userId, {
+        onDelete: 'cascade'
+    }),
+    content: text('content'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+    deletedAt: timestamp('deleted_at')
+})
+
+
+
+const mediaTypeEnum = pgEnum('media_type', [
+    'image',
+    'video'
+])
+
+const media = pgTable('media', {
+    mediaId: uuid('media_id').defaultRandom().primaryKey(),
+    uploadedBy: uuid('uploaded_by').notNull().references(() => users.userId, {
+        onDelete: 'cascade'
+    }),
+    type: mediaTypeEnum('type').notNull(),
+    storageKey: varchar('storage_key', {length: 500}).notNull(),
+    mimeType: varchar('mime_type', {length: 100}).notNull(),
+    width: integer('width'),
+    height: integer('height'),
+    duration: integer('duration'),
+    createdAt: timestamp('created_at').defaultNow().notNull()
+})
+
+const postMedia = pgTable('post_media', {
+    postId: uuid('post_id').notNull().references(() => posts.postId, {
+        onDelete: 'cascade'
+    }),
+    mediaId: uuid('media_id').notNull().references(() => media.mediaId, {
+        onDelete: 'cascade'
+    }),
+    sortOrder: integer('sort_order').notNull().default(0),
+},
+(table) => ({
+    pk: primaryKey({
+        columns: [
+            table.postId,
+            table.mediaId
+        ]
+    })
+})
+
+)
+
+
+module.exports = {users, refreshTokens, posts, media, mediaTypeEnum, postMedia};

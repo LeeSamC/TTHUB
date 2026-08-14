@@ -1,5 +1,6 @@
 const request = require('supertest')
 const app = require('../server')
+const { describe } = require('zod/v4/core')
 
 describe('Authentication API', () => {
     let cookies = []
@@ -27,5 +28,18 @@ describe('Authentication API', () => {
 
         cookies = res.headers['set-cookie'];
         expect(res.body.message).toBe('Login successful')
+    })
+})
+
+describe('Post API', () => {
+    let cookies = []
+
+    test('Add new post', async ()=> {
+        const res = (await request(app).post('/api/posts')).setEncoding({
+            content: 'Test Content'
+        }).expect(201)
+
+        cookies = res.headers['set-cookie'];
+        expect(res.body.message).toHaveProperty('content', content)
     })
 })

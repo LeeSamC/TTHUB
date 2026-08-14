@@ -23,9 +23,9 @@ const jwt = require('jsonwebtoken')
 const {z} = require('zod')
 
 
-const {eq, and} = require('drizzle-orm')
+const {eq, and, isNull, desc} = require('drizzle-orm')
 const {db} = require('./db')
-const {users, refreshTokens} = require('./schema');
+const {users, refreshTokens, posts} = require('./schema');
 
 const app = express();
 
@@ -35,7 +35,7 @@ const PORT = 3000
 // GLOBAL MIDDLEWARE
 // ==============================================
 
-//Adds ecurity related headers
+//Adds security related headers
 app.use(helmet())
 
 //Reads cookies from incoming requests
@@ -140,11 +140,23 @@ const loginSchema = z.object({
     password: z.string().min(1, "Password is required")
 })
 
-const updateSchema = z.object({
+const userUpdateSchema = z.object({
     firstName: z.string().min(1, "First name is required"),
     lastName: z.string().min(1, "Last name is required"),
     username: z.string().min(3, "Username must be at least 3 charachers"),
 })
+
+
+
+const createPostSchema = z.object({
+    content: z.string().trim().min(1, 'Post content cannot be empty').max(5000, 'Post content cannot exceed 5000 characters')
+})
+
+const updatePostSchema = z.object({
+    content: z.string().trim().min(1, 'Post content cannot be empty').max(5000, 'Post content cannot exceed 5000 characters')
+})
+
+
 
 
 // ============================================================
@@ -229,6 +241,7 @@ app.post('/api/auth/login', async (req, res) => {
             message: 'Login successful'
         });
     }catch (error){
+        console.error(error)
         res.status(500).json({error: 'Login failed'})
     }
 })
@@ -301,7 +314,7 @@ app.get('/api/profile', authenticateToken, async (req, res) => {
 
 app.patch('/api/profile/update', authenticateToken, async (req, res) => {
     const currentUserId = req.user.userId
-    const validation = updateSchema.safeParse(req.body)
+    const validation = userUpdateSchema.safeParse(req.body)
 
     if(!validation.success){
         return res.status(400).json({error: 'Invalid input data', details: validation.error.flatten().fieldErrors})
@@ -359,6 +372,193 @@ app.delete('/api/profile/delete', authenticateToken, async (req,res) => {
         res.status(500).json({error: 'Cannot delete user'})
     }
 })
+
+
+
+
+app.post('/api/posts', authenticateToken, async (req, res) => {
+    const validation = createPostSchema.safeParse(req.body)
+
+    if(!validation.success) {
+        return res.status(400).json({error: validation.error.flatten().fieldErrors})
+    }
+
+    const userId = req.user.userId
+
+    const {content} = validation.data
+
+    try{
+        const [newPost] = await db.insert(posts).values({
+            userId: userId,
+            content: content
+        }).returning()
+
+        return res.status(201).json({message: 'Post created', post: newPost})
+    }catch (error) {
+        console.error('Create post error', error)
+
+        return res.status(500).json({
+            error: 'Failed to create post'
+        })
+    }
+})
+
+app.get('/api/posts/:postId', authenticateToken, async (req, res) => {
+    const  {postId} = req.params
+
+    try{
+        const result = await db.select({
+            postId: posts.postId,
+            content: posts.content,
+            createdAt: posts.createdAt,
+            updatedAt: posts.updatedAt,
+            userId: users.userId,
+            username: users.username,
+            firstName: users.firstName,
+            lastName: users.lastName
+        }).from(posts).innerJoin(
+            users, eq(
+                posts.userId,
+                users.userId
+            )
+        ).where(
+            and(
+                eq(
+                    posts.postId, postId
+                ),
+                isNull(
+                    posts.deleteAt
+                )
+            )
+        )
+
+        if(result.length === 0) {
+            return res.status(404).json({error: 'Post not found'})
+        }
+
+        return res.status(200).json({post: result[0]})
+
+    }catch (error) {
+        console.error('Get post error', error)
+        return res.status(500).json({error: 'Failed to retrieve post'})
+    }
+})
+
+app.get('/api/posts', async (req, res) => {
+
+    try{
+        const result = await db.select({
+            postId: posts.postId,
+            content: posts.content,
+            createdAt: posts.createdAt,
+            updatedAt: posts.updatedAt,
+            userId: users.userId,
+            username: users.username,
+            firstName: users.firstName,
+            lastName: users.lastName
+        }).from(posts).innerJoin(
+            users,
+            eq(
+                posts.userId,
+                users.userId
+            )
+        ).where(
+            isNull(posts.deletedAt)
+        ).orderBy(
+            desc(posts.createdAt)
+        )
+
+        if (result.length === 0){
+            return res.status(404).json({error: 'No post found'})
+        }
+
+        return res.status(200).json({
+            posts: result
+        })
+    }catch (error) {
+        console.error('Get posts error', error)
+
+        return res.status(500).json({error: 'Failed to retrieve posts'})
+    }
+
+})
+
+app.patch('/api/posts/:postId', authenticateToken, async (req, res) => {
+    const {postId} = req.params
+
+    const userId = req.user.userId
+
+    const validation = updatePostSchema.safeParse(req.body)
+
+    if (!validation) {
+        return res.status(400).json({error: validation.error.flatten().fieldErrors})
+    }
+
+    try{
+        const [updatePost] = await db.update(posts).set({content: validation.data.content, updatedAt: new Date()}).where(
+            and(
+                eq(
+                    posts.postId,
+                        postId
+                ),
+
+                eq(
+                    posts.userId,
+                    userId
+                ),
+                isNull(
+                    posts.deletedAt
+                )
+            )
+        ).returning()
+
+        if(!updatePost) {
+            return res.status(404).json({error: 'Post not found or you do not own this posty'})
+        }
+        return res.status(200).json({message: 'Post updated successfully', posts: updatePost})
+    }catch (error) {
+        console.error('Update post error', error)
+        return res.status(500).json({error: 'Failed to update post'})
+    }
+})
+
+app.delete('/api/posts/:postId', authenticateToken, async (req, res) => {
+
+    const {postId} = req.params
+
+    const userId = req.user.userId
+
+    try{
+        const [deletedPost] = await db.delete(posts).where(
+            and(
+                eq(
+                    posts.postId,
+                    postId
+                ),
+
+                eq(
+                    posts.userId,
+                    userId
+                ),
+
+                isNull(
+                    posts.deletedAt
+                )
+            )
+        ).returning({postId: posts.postId})
+
+        if(!deletedPost) {
+            return res.status(404).json({error: 'Post not found or you do not own this post'})
+        }
+
+        return res.status(200).json({message:'Successfully deleted post'})
+
+    }catch (error) {
+        console.error('Delete post error', error)
+        return res.status(500).json({error: 'Failed to delete post'})
+    }
+})
+
 
 
 module.exports = app

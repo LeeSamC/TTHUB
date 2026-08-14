@@ -1,20 +1,40 @@
 <script setup>
-import {ref} from 'vue'
+import {onMounted, ref} from 'vue'
 import {useRouter} from 'vue-router'
-import api from '../api';
+import api from '../api/api';
 
 const router = useRouter();
 const isLoggingOut = ref(false);
+const isAuthenticated = ref(false);
+const isLoading = ref(true)
+
+const checkAuth = async () => {
+    try{
+        await api.get('/profile');
+        isAuthenticated.value = true;
+    }catch (error) {
+        isAuthenticated.value = false;
+    }finally {
+        isLoading.value = false
+    }
+       
+}
+
+onMounted(() => {
+    checkAuth()
+})
+
 
 const handleLogout = async () => {
     isLoggingOut.value = true;
     try{
         await api.post('/auth/logout')
+        isAuthenticated.value = false
+        await router.push('/')
     }catch (err){
         console.log(err)
     }finally{
         isLoggingOut.value = false
-        router.push('/login')
     }
 }
 </script>
@@ -34,6 +54,7 @@ const handleLogout = async () => {
                         </router-link>
 
                         <router-link 
+                        v-if="isAuthenticated"
                             to="/profile" 
                             class="px-3 py-2 rounded-md text-sm font-medium hover:bg-indigo-700 transition"
                             active-class="bg-indigo-700 font-semibold">
@@ -43,10 +64,31 @@ const handleLogout = async () => {
                 </div>
 
                 <div>
-                    <button @click="handleLogout" :disabled="isLoggingOut" class="bg-indigo-700 hover:bg-indigo-800 text-white px-4 py-2 rounded-md text-sm font-medium transition disabled:opacity-50">
-                        {{ isLoggingOut ? 'Logging out...' : 'Logout' }}
-                    </button>
+                    <div v-if="!isLoading">
+                        <template v-if="isAuthenticated">
+                            <button
+                                @click="handleLogout"
+                                :disabled="isLoggingOut"
+                                class="bg-indigo-700 hover:bg-indigo-800 text-white px-4 py-2 rounded-md text-sm font-medium transition disabled:opacity-50"
+                            >{{ isLoggingOut? "Logging out...": "Logout" }}</button>
+                        </template>
+                        <template v-else>
+                            <router-link 
+                                to="/login"
+                                class="bg-indigo-700 hover:bg-indigo-800 text-white px-4 py-2 rounded-md text-sm font-medium transition mr-2"
+                            >Login</router-link>
+
+                            <router-link 
+                                to="/register"
+                                class="bg-indigo-700 hover:bg-indigo-800 text-white px-4 py-2 rounded-md text-sm font-medium transition"
+                            >Register</router-link>
+                        </template>
+
+                    </div>
+                    <div v-else class="text-white text-sm">Loading</div>
                 </div>
+
+                
             </div>
         </header>
 
