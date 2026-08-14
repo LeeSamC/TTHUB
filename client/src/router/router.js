@@ -4,7 +4,8 @@ import Register from '../views/Register.vue';
 import Profile from '../views/Profile.vue';
 import Home from '../views/Home.vue'
 import api from '../api/api.js'
-import { meta } from 'zod/v4/core';
+
+import { useAuthStore } from '../stores/auth';
 
 const routes = [
     {
@@ -42,18 +43,15 @@ const router = createRouter({
 });
 
 router.beforeEach(async (to) => {
+    const authStore = useAuthStore()
 
-    if(!to.meta.requiresAuth) {
-        return true
-    
+    if(to.meta.requiresAuth && !authStore.isAuthenticated) {
+        return{
+            name: 'Home'
+        }
     }
 
-    try{
-            await api.get('/profile');
-            return true;
-    }catch (err) {
-            return { name: 'Home'}
-        }
+    return true
 
 })
 

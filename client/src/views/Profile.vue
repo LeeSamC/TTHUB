@@ -1,23 +1,23 @@
 <script setup>
 import {ref, reactive, onMounted} from 'vue'
 import {useRouter} from 'vue-router'
+import { useAuthStore } from '../stores/auth'
 import api from '../api/api'
 import { success } from 'zod'
 
 const router = useRouter()
+const authStore = useAuthStore()
 
-const isLoading = ref(true)
 const isSaving = ref(false)
 const isEditing = ref(false)
 const isDeleting = ref(false)
+
 const successMessage = ref('')
 const errorMessage = ref('')
-
 const showModal = ref(false)
 
 const password = ref('')
 
-const user = ref(null)
 
 const form = reactive({
   firstName: '',
@@ -38,23 +38,23 @@ const closeModal = () => {
   errorMessage.value = ''
 }
 
-const fetchProfile = async () => {
-  try{
-    isLoading.value = true
-    const res = await api.get('/profile');
-    user.value = res.data;
+const startEditing = () => {
+  const user = authStore.user
 
-    form.firstName = res.data.firstName || ''
-    form.lastName = res.data.lastName || ''
-    form.username = res.data.username || ''
-  }catch (err) {
-    errorMessage.value = 'Failed to load user profile'
-  }finally {
-    isLoading.value = false;
+  if(!user){
+    return
   }
+
+  form.firstName = user.firstName
+  form.lastName = user.lastName
+  form.username = user.username
+
+  errorMessage.value = ''
+  successMessage.value = ''
+
+  isEditing.value = true
 }
 
-onMounted(fetchProfile)
 
 const handleSave = async () => {
   isSaving.value = true
@@ -68,7 +68,7 @@ const handleSave = async () => {
       username: form.username
     })
 
-    user.value = res.data.user
+    authStore.user = res.data.user
 
     successMessage.value = 'Profile update successful'
     isEditing.value = false
@@ -80,9 +80,16 @@ const handleSave = async () => {
 }
 
 const cancelEditing = () => {
-  form.firstName = user.value.firstName || ''
-  form.lastName = user.value.lastName || ''
-  form.username = user.value.username || ''
+
+  const user = authStore.user
+
+  if(user) {
+    form.firstName = user.firstName
+    form.lastName = user.lastName
+    form.username = user.username
+  }
+
+  
   isEditing.value = false
   errorMessage.value = ''
 }
@@ -98,8 +105,11 @@ const handleDelete = async () => {
       data: {password: password.value}
     })
 
+    authStore.user = null
+
     showModal.value = false
-    router.push('/login')  
+
+    await router.push('/')  
   }catch (err) {
     errorMessage.value = err.response?.data?.error || 'Failed to delete account'
   }finally{
@@ -113,7 +123,7 @@ const handleDelete = async () => {
     <div class="flex justify-between items-center mb-6">
       <h1 class="text-2xl font-bold text-slate-900">User Profile</h1>
 
-      <button v-if="!isEditing && !isLoading" @click="isEditing = true" class="bg-indigo-50 text-indigo-600 hover:bg-indigo-100 px-4 py-2 rounded-md font-medium text-sm transition"> Edit profile
+      <button v-if="!isEditing" @click="startEditing" class="bg-indigo-50 text-indigo-600 hover:bg-indigo-100 px-4 py-2 rounded-md font-medium text-sm transition"> Edit profile
 
       </button>
 
@@ -171,28 +181,23 @@ const handleDelete = async () => {
       {{ errorMessage }}
     </div>
 
-    <div v-if="isLoading" class="animate-pulse space-y-4">
-      <div class="h-10 bg-slate-100 rounded"></div>
-      <div class="h-10 bg-slate-100 rounded"></div>
-    </div>
-
     <form v-else @submit.prevent="handleSave" class="space-y-4">
       <div>
         <label class="block text-sm font-medium text-slate-700 mb-1">First Name</label>
         <input v-if="isEditing" v-model="form.firstName" type="text" required class="w-full border border-slate-300 rounded-md px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-        <p v-else class="text-slate-900 font-medium py-2">{{ user?.firstName }}</p>
+        <p v-else class="text-slate-900 font-medium py-2">{{ authStore.user?.firstName }}</p>
       </div>
 
       <div>
         <label class="block text-sm font-medium text-slate-700 mb-1">Last Name</label>
         <input v-if="isEditing" v-model="form.lastName" type="text" required class="w-full border border-slate-300 rounded-md px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-        <p v-else class="text-slate-900 font-medium py-2">{{ user?.lastName }}</p>
+        <p v-else class="text-slate-900 font-medium py-2">{{ authStore.user?.lastName }}</p>
       </div>
 
       <div>
         <label class="block text-sm font-medium text-slate-700 mb-1">Username</label>
         <input v-if="isEditing" v-model="form.username" type="text" required class="w-full border border-slate-300 rounded-md px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-        <p v-else class="text-slate-900 font-medium py-2">{{ user?.username }}</p>
+        <p v-else class="text-slate-900 font-medium py-2">{{ authStore.user?.username }}</p>
       </div>
 
       <div v-if="isEditing" class="flex gap-3 pt-4 border-t border-slate-100">

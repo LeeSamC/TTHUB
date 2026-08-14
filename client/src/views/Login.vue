@@ -1,9 +1,11 @@
 <script setup>
 import {ref} from 'vue';
 import {useRouter} from 'vue-router'
-import api from '../api/api'
+import { useAuthStore } from '../stores/auth';
 
 const router = useRouter();
+const authStore = useAuthStore()
+
 const username = ref('')
 const password = ref('')
 const errorMsg = ref('')
@@ -11,12 +13,12 @@ const errorMsg = ref('')
 const handleLogin = async () => {
     errorMsg.value = '';
     try{
-        const res = await api.post('/auth/login', {
+        await authStore.login({
             username: username.value,
             password: password.value,
         });
         
-        router.push('/home');
+        await router.push('/');
     }catch (err) {
         errorMsg.value = err.response?.data?.error || 'Login failed'
     }

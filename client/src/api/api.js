@@ -8,10 +8,10 @@ const api = axios.create({
 
 const isAuthEndpoint = (url = '') => {
     return(
-        originalRequest.url.includes('/auth/login') ||
-        originalRequest.url.includes('/auth/register') ||
-        originalRequest.url.includes('/auth/refresh') ||
-        originalRequest.url.includes('/auth/logout')
+        url.includes('/auth/login') ||
+        url.includes('/auth/register') ||
+        url.includes('/auth/refresh') ||
+        url.includes('/auth/logout')
     )
 
 } 

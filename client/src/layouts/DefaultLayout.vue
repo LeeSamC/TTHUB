@@ -1,35 +1,17 @@
 <script setup>
 import {onMounted, ref} from 'vue'
 import {useRouter} from 'vue-router'
-import api from '../api/api';
+import { useAuthStore } from '../stores/auth';
 
 const router = useRouter();
+const authStore = useAuthStore()
 const isLoggingOut = ref(false);
-const isAuthenticated = ref(false);
-const isLoading = ref(true)
-
-const checkAuth = async () => {
-    try{
-        await api.get('/profile');
-        isAuthenticated.value = true;
-    }catch (error) {
-        isAuthenticated.value = false;
-    }finally {
-        isLoading.value = false
-    }
-       
-}
-
-onMounted(() => {
-    checkAuth()
-})
 
 
 const handleLogout = async () => {
     isLoggingOut.value = true;
     try{
-        await api.post('/auth/logout')
-        isAuthenticated.value = false
+        await authStore.logout()
         await router.push('/')
     }catch (err){
         console.log(err)
@@ -54,7 +36,7 @@ const handleLogout = async () => {
                         </router-link>
 
                         <router-link 
-                        v-if="isAuthenticated"
+                        v-if="authStore.isAuthenticated"
                             to="/profile" 
                             class="px-3 py-2 rounded-md text-sm font-medium hover:bg-indigo-700 transition"
                             active-class="bg-indigo-700 font-semibold">
@@ -64,8 +46,8 @@ const handleLogout = async () => {
                 </div>
 
                 <div>
-                    <div v-if="!isLoading">
-                        <template v-if="isAuthenticated">
+                    <div v-if="!authStore.isLoading">
+                        <template v-if="authStore.isAuthenticated">
                             <button
                                 @click="handleLogout"
                                 :disabled="isLoggingOut"

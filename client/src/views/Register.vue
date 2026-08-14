@@ -1,26 +1,37 @@
 <script setup>
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
-import api from '../api/api';
+import { useAuthStore } from '../stores/auth';
+import { use } from 'react';
 
 const router = useRouter();
-const form = ref({firstName: '', lastName: '', username: '', password: ''})
+const authStore = useAuthStore();
+
+
+const form = ref({firstName: '', lastName: '', username: '', password: '', confirmPassword: ''})
 const errorMsg = ref('');
 
 const handleRegister = async () => {
     errorMsg.value = '';
 
-    if(form.value.password !== form.value.confirmPassword) {
+    if(form.value.password != form.value.confirmPassword) {
       errorMsg.value = 'Passwords do not match';
       return;
     }
 
     try{
-        const res = await api.post('/auth/register', form.value)
-        router.push('/');
+      await authStore.register({
+        firstName: form.value.firstName,
+        lastName: form.value.lastName,
+        username: form.value.username,
+        password: form.value.password
+      })
 
+      await router.push('/')
     }catch (err) {
-        errorMsg.value = err.response?.data?.error || 'Registration failed'
+      console.error(err);
+
+      errorMsg.value = err.response?.data?.error || 'Registration failed';
     }
 }
 </script>

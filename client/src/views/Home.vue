@@ -1,45 +1,34 @@
 <script setup>
 import { ref, onMounted } from 'vue';
 import api from '../api/api';
+import { useAuthStore } from '../stores/auth';
 
+const authStore = useAuthStore();
 
 const posts = ref([])
 const loading = ref(true)
 const errorMessage = ref('')
 
-const isAuthenticated = ref(false)
 
 const loadPosts = async () => {
+
+  loading.value = true
+  errorMessage.value = ''
+
   try{
     const res = await api.get('/posts')
     posts.value = res.data.posts || []
   }catch (error) {
     console.error(error)
     errorMessage.value = error.response?.data?.error || 'Failed to fetch post'
-  }
-}
-
-const checkAuthentication = async () => {
-  try{
-    await api.get('/profile')
-    isAuthenticated.value = true
-  }catch {
-    isAuthenticated.value = false
-  }
-}
-
-onMounted(async () => {
-  loading.value = true
-  errorMessage.value = ''
-
-  try{
-    await loadPosts()
-    await checkAuthentication()
-
-  }finally {
+  }finally{
     loading.value = false
   }
-  
+}
+
+
+onMounted(async () => {
+  loadPosts()
 });
 </script>
 
@@ -49,7 +38,7 @@ onMounted(async () => {
       <h1 class="text-2xl font-bold" >Welcome to TTHUB</h1>
 
       <router-link 
-      v-if="isAuthenticated"
+      v-if="authStore.isAuthenticated"
         to="/create-post"
         class="bg-indigo-600 text-white px-4 py-2 rounded-md text-sm hover:bg-indigo-700 transition"
       >+ Create Post</router-link>
