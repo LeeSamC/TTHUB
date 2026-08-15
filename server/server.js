@@ -296,6 +296,7 @@ app.get('/api/profile', authenticateToken, async (req, res) => {
 
     try{
         const result = await db.select({
+            userId: users.userId,
             firstName: users.firstName,
             lastName: users.lastName,
             username: users.username,
@@ -490,7 +491,7 @@ app.patch('/api/posts/:postId', authenticateToken, async (req, res) => {
 
     const validation = updatePostSchema.safeParse(req.body)
 
-    if (!validation) {
+    if (!validation.success) {
         return res.status(400).json({error: validation.error.flatten().fieldErrors})
     }
 

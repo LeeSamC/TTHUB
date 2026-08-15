@@ -10,7 +10,14 @@ const loading = ref(true)
 const errorMessage = ref('')
 
 const isCreatingPost = ref(false)
+const isEditingPost = ref(false)
+
 const content = ref('')
+const editContent = ref('')
+
+const editingPostId = ref('')
+
+
 const showModal = ref(false)
 
 const openModal = () => {
@@ -33,10 +40,12 @@ const handlePostContent = async () => {
 
   if(!authStore.isAuthenticated) {
     errorMessage.value = 'Must be logged in'
+    return
   }
 
   if(!content.value.trim()) {
     errorMessage.value = 'Post content cannot be empty'
+    return
   }
 
   isCreatingPost.value = true
@@ -59,6 +68,50 @@ const handlePostContent = async () => {
     errorMessage.value = err.response?.data?.error || 'Failed to create post'
   }finally {
     isCreatingPost.value = false
+  }
+}
+
+const startEditing = (post) => {
+  editingPostId.value = post.postId
+  editContent.value = post.content
+  errorMessage.value = ''
+}
+
+const cancelEdit = () => {
+  editingPostId.value = null
+  editContent.value = null
+  errorMessage.value = null
+}
+
+const handleEditContent = async () => {
+  errorMessage.value = ''
+
+  if(!editingPostId.value) {
+    return
+  }
+  if(!editContent.value.trim()){
+    errorMessage.value = 'Content cannot be empty'
+    return
+  }
+
+  isEditingPost.value = true
+
+  try{
+    const res = await api.patch(`/posts/${editingPostId.value}`, {
+      content: editContent.value.trim()
+    })
+
+    console.log('Post edited', res.data)
+
+    await loadPosts()
+
+    cancelEdit()
+
+
+  }catch (err) {
+    errorMessage.value = err.response?.data?.error || 'Failed to edit content'
+  }finally {
+      isEditingPost.value = false
   }
 }
 
@@ -134,7 +187,31 @@ onMounted(async () => {
 
     <div v-else-if="posts.length > 0 ">
       <div v-for="post in posts" :key = "post.postId" class="border-b border-gray-200 py-4 last:border-0">
-        <p class="text-gray-800">{{ post.content }}</p>
+
+        <div v-if="editingPostId === post.postId">
+          <input v-model="editContent" type="text" class="w-full border border-slate-300 rounded-md px-3 py-2 text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500" @keyup.enter="handleEditContent">
+
+          <div class="flex gap-2 mt-2">
+            <button type="button" @click="handleEditContent" :disabled="isEditingPost || !editContent.trim()" class="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white px-3 py-1 rounded-md text-sm">
+              {{ isEditingPost ? 'Saving...' : 'Save' }}
+            </button>
+
+            <button type="button" @click="cancelEdit" :disabled="isEditingPost" class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1 rounded-md text-sm">
+              Cancel
+            </button>
+          </div>
+        </div>
+
+        <div v-else>
+          <p class="text-gray-800">{{ post.content }}</p>
+
+          <div v-if="authStore.isAuthenticated && authStore.user?.userId === post.userId" class="mt-2">
+            <button type="button" @click="startEditing(post)" class="text-indigo-600 hover:text-indigo-800 text-sm font-medium">
+              Edit
+            </button>
+
+          </div>
+        </div>
         <div class="flex items-center gap-2 mt-1 text-sm text-gray-500">
           <span>By: {{ post.username || 'Unknown' }}</span>
           <span>•</span>
