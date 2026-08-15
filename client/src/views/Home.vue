@@ -205,15 +205,15 @@ onMounted(async () => {
         <div v-else>
           <p class="text-gray-800">{{ post.content }}</p>
 
-          <div v-if="authStore.isAuthenticated && authStore.user?.userId === post.userId" class="mt-2">
-            <button type="button" @click="startEditing(post)" class="text-indigo-600 hover:text-indigo-800 text-sm font-medium">
+          <div v-if="authStore.isAuthenticated && authStore.user?.userId === post.userId" class="mt-0.5">
+            <button type="button" @click="startEditing(post)" class="text-indigo-600 hover:text-indigo-800 text-xs font-medium">
               Edit
             </button>
 
           </div>
         </div>
         <div class="flex items-center gap-2 mt-1 text-sm text-gray-500">
-          <span>By: {{ post.username || 'Unknown' }}</span>
+          <span>By : {{ post.username || 'Unknown' }}</span>
           <span>•</span>
           <span>{{ new Date(post.createdAt).toLocaleDateString() }}</span>
         </div>

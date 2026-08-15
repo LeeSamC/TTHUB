@@ -23,7 +23,7 @@ const handleLogout = async () => {
 
 <template>
     <div class="min-h-screen flex flex-col bg-slate-50 text-slate-800">
-        <header class="bg-indigo-600 text-white shadow-md">
+        <header class="bg-slate-900 text-white shadow-md">
             <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
                 <div class="flex items-center gap-8">
                     <router-link to="/home" class="text-xl font-bold tracking-tight hover:opacity-90">
