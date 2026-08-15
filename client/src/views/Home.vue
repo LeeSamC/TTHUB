@@ -115,6 +115,17 @@ const handleEditContent = async () => {
   }
 }
 
+const handleDeletePost = async (post) => {
+  errorMessage.value = ''
+
+  try{
+    await api.delete(`/posts/${post.postId}`)
+    await loadPosts()
+  }catch (err){
+    errorMessage.value = err.response?.data?.error || 'Failed to delete post'
+  }
+}
+
 
 const loadPosts = async () => {
 
@@ -205,9 +216,12 @@ onMounted(async () => {
         <div v-else>
           <p class="text-gray-800">{{ post.content }}</p>
 
-          <div v-if="authStore.isAuthenticated && authStore.user?.userId === post.userId" class="mt-0.5">
+          <div v-if="authStore.isAuthenticated && authStore.user?.userId === post.userId" class=" flex gap-4 mt-0.5">
             <button type="button" @click="startEditing(post)" class="text-indigo-600 hover:text-indigo-800 text-xs font-medium">
               Edit
+            </button>
+            <button type="button" @click="handleDeletePost(post)" class="text-indigo-600 hover:text-red-800 text-xs font-medium" >
+              Delete
             </button>
 
           </div>
