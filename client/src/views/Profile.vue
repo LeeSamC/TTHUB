@@ -123,11 +123,12 @@ const handleDelete = async () => {
     <div class="flex justify-between items-center mb-6">
       <h1 class="text-2xl font-bold text-slate-900">User Profile</h1>
 
-      <button v-if="!isEditing" @click="startEditing" class="bg-indigo-50 text-indigo-600 hover:bg-indigo-100 px-4 py-2 rounded-md font-medium text-sm transition"> Edit profile
-
+      <button v-if="!isEditing" @click="startEditing" class="bg-indigo-50 text-indigo-600 hover:bg-indigo-100 px-4 py-2 rounded-md font-medium text-sm transition"> 
+        Edit profile
       </button>
 
-      <button type="button" @click="openModal" class="bg-rose-600 hover:bg-rose-700 text-white font-medium text-sm px-4 py-2 rounded-md transition self-start sm:self-center shrink-0"> Delete Account
+      <button type="button" @click="openModal" class="bg-rose-600 hover:bg-rose-700 text-white font-medium text-sm px-4 py-2 rounded-md transition self-start sm:self-center shrink-0"> 
+        Delete Account
       </button>
 
     </div>
@@ -159,8 +160,8 @@ const handleDelete = async () => {
           </div>
 
           <div class="flex justify-end gap-3 pt-2">
-            <button type="button" @click="closeModal" :disabled="isDeleting" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium rounded-md transition"> Cancel
-
+            <button type="button" @click="closeModal" :disabled="isDeleting" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium rounded-md transition"> 
+              Cancel
             </button>
 
             <button type="button" @click="handleDelete" :disabled="!password || isDeleting" class="px-4 py-2 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-sm font-medium rounded-md transition flex items-center gap-2">
