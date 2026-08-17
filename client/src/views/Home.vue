@@ -20,6 +20,9 @@ const selectedFile = ref(null)
 const imagePreview = ref('')
 const isUploadingMedia = ref(false)
 
+const editSelectedFile = ref(null)
+const editImagePreview = ref('')
+
 
 const showModal = ref(false)
 
@@ -102,13 +105,22 @@ const handlePostContent = async () => {
 const startEditing = (post) => {
   editingPostId.value = post.postId
   editContent.value = post.content
+
+  editSelectedFile.value = null
+  editImagePreview.value = ''
+
   errorMessage.value = ''
 }
 
 const cancelEdit = () => {
+  if(editImagePreview.value) {
+    URL.revokeObjectURL(editImagePreview.value)
+  }
   editingPostId.value = null
   editContent.value = null
-  errorMessage.value = null
+  editSelectedFile.value = null
+  editImagePreview.value = ''
+  errorMessage.value = ''
 }
 
 const handleEditContent = async () => {
@@ -122,12 +134,18 @@ const handleEditContent = async () => {
     return
   }
 
+  const formData = new FormData()
+
+  formData.append('content', editContent.value.trim())
+
+  if(editSelectedFile.value) {
+    formData.append('file', editSelectedFile.value)
+  }
+
   isEditingPost.value = true
 
   try{
-    const res = await api.patch(`/posts/${editingPostId.value}`, {
-      content: editContent.value.trim()
-    })
+    const res = await api.patch(`/posts/${editingPostId.value}`, formData)
 
     console.log('Post edited', res.data)
 
@@ -207,6 +225,40 @@ const removeSelectedFile = () => {
   imagePreview.value = ''
 }
 
+const handleEditFileSelect = (event) => {
+  const file = event.target.files[0]
+
+  if(!file) return
+
+  if (!file.type.startsWith('image/')) {
+        errorMessage.value = 'Please select an image file'
+        return
+    }
+
+  if (file.size > 10 * 1024 * 1024) {
+        errorMessage.value = 'Image must be less than 10MB'
+        return
+    }
+
+
+
+  editSelectedFile.value = file
+
+  if(editImagePreview.value) {
+    URL.revokeObjectURL(editImagePreview.value)
+  }
+
+  editImagePreview.value = URL.createObjectURL(file)
+}
+
+const removeEditSelectedFile = () => {
+  if(editImagePreview.value) {
+    URL.revokeObjectURL(editImagePreview.value)
+  }
+  editSelectedFile.value = null
+  editImagePreview.value = ''
+}
+
 
 onMounted(async () => {
   loadPosts()
@@ -277,7 +329,26 @@ onMounted(async () => {
 
         <div v-if="editingPostId === post.postId">
           <input v-model="editContent" type="text" class="w-full border border-slate-300 rounded-md px-3 py-2 text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500" @keyup.enter="handleEditContent">
+          <div class="mt-3">
+            <label class="cursor-pointer inline-flex items-center gap-2 px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-md text-sm">
+              Change Image
 
+              <input 
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                class="hidden"
+                @change="handleEditFileSelect"
+              >
+            </label>
+          </div>
+
+          <div v-if="editImagePreview" class="relative mt-3">
+            <img :src="editImagePreview" alt="New Image preview" class="w-full max-h-80 object-cover rounded-lg border border-slate-200">
+
+            <button type="button" @click="removeEditSelectedFile" class="absolute top-2 right-2 bg-black/70 text-white rounded-full w-8 h-8 flex items-center justify-center hover:bg-black">
+              x
+            </button>
+          </div>
           <div class="flex gap-2 mt-2">
             <button type="button" @click="handleEditContent" :disabled="isEditingPost || !editContent.trim()" class="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white px-3 py-1 rounded-md text-sm">
               {{ isEditingPost ? 'Saving...' : 'Save' }}

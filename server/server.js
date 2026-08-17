@@ -510,7 +510,7 @@ app.get('/api/posts/:postId', authenticateToken, async (req, res) => {
                     posts.postId, postId
                 ),
                 isNull(
-                    posts.deleteAt
+                    posts.deletedAt
                 )
             )
         )
@@ -616,7 +616,7 @@ app.get('/api/posts', async (req, res) => {
 
 })
 
-app.patch('/api/posts/:postId', authenticateToken, async (req, res) => {
+app.patch('/api/posts/:postId', authenticateToken, imageUpload.single('file'), async (req, res) => {
     const {postId} = req.params
 
     const userId = req.user.userId
@@ -624,10 +624,36 @@ app.patch('/api/posts/:postId', authenticateToken, async (req, res) => {
     const validation = updatePostSchema.safeParse(req.body)
 
     if (!validation.success) {
-        return res.status(400).json({error: validation.error.flatten().fieldErrors})
+       if (req.file?.path && fs.existsSync(req.file.path)) {
+        fs.unlinkSync(req.file.path)
+      }
+
+      return res.status(400).json({
+        error: validation.error.flatten().fieldErrors
+      })
     }
 
     try{
+        const existingPost = await db.select({postId: posts.postId}).from(posts).where(
+            and(
+                eq(posts.postId, postId),
+                eq(posts.userId, userId),
+                isNull(posts.deletedAt)
+            )
+        )
+
+        if(existingPost.length === 0) {
+            if (req.file?.path && fs.existsSync(req.file.path)) {
+                fs.unlinkSync(req.file.path)
+            }
+
+            return res.status(404).json({
+            error: 'Post not found or you do not own this post'
+            })
+        }
+
+
+
         const [updatePost] = await db.update(posts).set({content: validation.data.content, updatedAt: new Date()}).where(
             and(
                 eq(
@@ -645,12 +671,50 @@ app.patch('/api/posts/:postId', authenticateToken, async (req, res) => {
             )
         ).returning()
 
-        if(!updatePost) {
-            return res.status(404).json({error: 'Post not found or you do not own this posty'})
+        if(req.file) {
+            const existingMedia = await db.select({mediaId: media.mediaId, storageKey: media.storageKey}).from(postMedia)
+                                        .innerJoin(
+                                            media,
+                                            eq(postMedia.mediaId, media.mediaId)
+                                        ).where(
+                                            eq(postMedia.postId, postId)
+                                        )
+
+            const storageKey = `images/${req.file.filename}`
+
+            const [newMedia] = await db.insert(media).values({uploadedBy: userId, type: 'image', storageKey: storageKey, mimeType: req.file.mimetype}).returning()
+
+            await db.delete(postMedia).where(eq(postMedia.postId, postId))
+
+            await db.insert(postMedia).values({postId: postId, mediaId: newMedia.mediaId, sortOrder: 0})
+
+            for (const oldMedia of existingMedia) {
+                const oldFilePath = path.join(uploadDirectory, oldMedia.storageKey)
+
+                if(fs.existsSync(oldFilePath)) {
+                    fs.unlinkSync(oldFilePath)
+                }
+
+                await db.delete(media).where(eq(media.mediaId, oldMedia.mediaId))
+            }
+
         }
+
         return res.status(200).json({message: 'Post updated successfully', posts: updatePost})
     }catch (error) {
         console.error('Update post error', error)
+
+        if(req.file?.path && fs.existsSync(req.file.path)) {
+            try{
+                fs.unlinkSync(req.file.path)
+            }catch (cleanupError) {
+                console.error (
+                    'Failed to remove uploaded file: ', cleanupError
+                )
+            }
+        }
+
+
         return res.status(500).json({error: 'Failed to update post'})
     }
 })
@@ -662,27 +726,45 @@ app.delete('/api/posts/:postId', authenticateToken, async (req, res) => {
     const userId = req.user.userId
 
     try{
-        const [deletedPost] = await db.delete(posts).where(
+
+        const postResult = await db.select({postId: posts.postId}).from(posts).where(
             and(
-                eq(
-                    posts.postId,
-                    postId
-                ),
-
-                eq(
-                    posts.userId,
-                    userId
-                ),
-
-                isNull(
-                    posts.deletedAt
-                )
+                eq(posts.postId, postId),
+                eq(posts.userId, userId),
+                isNull(posts.deletedAt)
             )
-        ).returning({postId: posts.postId})
+        )
 
-        if(!deletedPost) {
-            return res.status(404).json({error: 'Post not found or you do not own this post'})
+        if (postResult.length === 0) {
+            return res.status(404).json({error: 'Post not found'})
         }
+
+        const attachedMedia = await db.select({mediaId: media.mediaId, storageKey: media.storageKey}).from(postMedia)
+                                .innerJoin(
+                                    media,
+                                    eq(postMedia.mediaId, media.mediaId)
+                                )
+                                .where(
+                                    eq(postMedia.postId, postId)
+                                )
+        for (const item of attachedMedia) {
+            const filePath = path.join(
+                uploadDirectory,
+                item.storageKey
+            )
+
+            if(fs.existsSync(filePath)){
+                fs.unlinkSync(filePath)
+            }
+        }
+
+        await db.delete(posts).where(
+            and(
+                eq(posts.postId, postId),
+                eq(posts.userId, userId)
+            )
+        )
+        
 
         return res.status(200).json({message:'Successfully deleted post'})
 
