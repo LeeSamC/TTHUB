@@ -22,10 +22,16 @@ const jwt = require('jsonwebtoken')
 //Validate incoming request data
 const {z} = require('zod')
 
+//Handle mulitpart/form data for media 
+const multer = require('multer')
+const path = require('path')
+const fs = require('fs')
+const crypto = require('crypto')            
+
 
 const {eq, and, isNull, desc} = require('drizzle-orm')
 const {db} = require('./db')
-const {users, refreshTokens, posts} = require('./schema');
+const {users, refreshTokens, posts, media, postMedia} = require('./schema');
 
 const app = express();
 
@@ -36,7 +42,11 @@ const PORT = 3000
 // ==============================================
 
 //Adds security related headers
-app.use(helmet())
+app.use(helmet({
+    crossOriginResourcePolicy: {
+        policy: 'cross-origin'
+    }
+}))
 
 //Reads cookies from incoming requests
 app.use(cookieParser())
@@ -57,6 +67,7 @@ app.use(cors({
     //Allows the browser to send cookies with request 
     credentials: true
 }))
+
 
 
 // ==============================================
@@ -149,7 +160,8 @@ const userUpdateSchema = z.object({
 
 
 const createPostSchema = z.object({
-    content: z.string().trim().min(1, 'Post content cannot be empty').max(5000, 'Post content cannot exceed 5000 characters')
+    content: z.string().trim().min(1, 'Post content cannot be empty').max(5000, 'Post content cannot exceed 5000 characters'),
+    mediaIds: z.array(z.string().uuid()).optional().default([])
 })
 
 const updatePostSchema = z.object({
@@ -180,6 +192,64 @@ const authenticateToken = (req, res, next) => {
     })
 
 };
+
+
+// ============================================================
+// IMAGE STORAGE
+// ============================================================
+
+const uploadDirectory = path.join(__dirname, 'uploads');
+const imageDirectory = path.join(uploadDirectory, 'images');
+const videoDirectory = path.join(uploadDirectory, 'videos');
+
+fs.mkdirSync(imageDirectory, {
+    recursive: true
+})
+
+fs.mkdirSync(videoDirectory, {
+    recursive: true
+})
+
+
+const imageStorage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, imageDirectory)
+    },
+    filename: (req, file, cb) => {
+        const extension = path.extname(file.originalname)
+
+        const filename = `${crypto.randomUUID()}${extension}`
+
+        cb(null, filename)
+    }
+})
+
+const imageUpload = multer({
+    storage: imageStorage,
+    
+    limits: {
+        fileSize: 10 * 1024 * 1024
+    },
+
+    fileFilter: (req, file, cb) => {
+        const allowedTypes = [
+            'image/jpeg',
+            'image/png',
+            'image/webp',
+            'image/gif'
+        ];
+
+        if(!allowedTypes.includes(file.mimetype)) {
+            return cb(new error('Only image files are allowed')
+            )
+        }
+        cb(null, true)
+    }
+
+})
+
+//Expose upload directory so the broswer can see the file
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')))
 
 
 app.post('/api/auth/register', async (req, res) => {
@@ -386,13 +456,25 @@ app.post('/api/posts', authenticateToken, async (req, res) => {
 
     const userId = req.user.userId
 
-    const {content} = validation.data
+    const {content, mediaIds} = validation.data
 
     try{
         const [newPost] = await db.insert(posts).values({
             userId: userId,
             content: content
         }).returning()
+
+        if(mediaIds.length > 0) {
+            await db.insert(postMedia).values(mediaIds.map(
+                (mediaId, index) => ({
+                    postId: newPost.postId,
+
+                    mediaId: mediaId,
+                    
+                    sortOrder: index
+                })
+            ))
+        }
 
         return res.status(201).json({message: 'Post created', post: newPost})
     }catch (error) {
@@ -453,28 +535,78 @@ app.get('/api/posts', async (req, res) => {
             content: posts.content,
             createdAt: posts.createdAt,
             updatedAt: posts.updatedAt,
+
             userId: users.userId,
             username: users.username,
             firstName: users.firstName,
-            lastName: users.lastName
-        }).from(posts).innerJoin(
+            lastName: users.lastName,
+
+            mediaId: media.mediaId,
+            mediaType: media.type,
+            storageKey: media.storageKey,
+            mimeType: media.mimeType,
+            width: media.width,
+            height: media.height,
+            duration: media.duration,
+            sortOrder: postMedia.sortOrder
+        }).from(posts)
+        .innerJoin(
             users,
             eq(
                 posts.userId,
                 users.userId
             )
-        ).where(
+        )
+        .leftJoin(
+            postMedia,
+            eq(posts.postId, postMedia.postId)
+        )
+        .leftJoin(media,
+            eq(postMedia.mediaId, media.mediaId)
+            
+        )
+        .where(
             isNull(posts.deletedAt)
-        ).orderBy(
+        )
+        .orderBy(
             desc(posts.createdAt)
         )
 
-        if (result.length === 0){
-            return res.status(404).json({error: 'No post found'})
+        const postMap = new Map();
+
+        for(const row of result){
+            if(!postMap.has(row.postId)){
+                postMap.set(row.postId, {
+                    postId: row.postId,
+                    content: row.content,
+                    createdAt: row.createdAt,
+                    updatedAt: row.updatedAt,
+                    userId: row.userId,
+                    username: row.username,
+                    firstName: row.firstName,
+                    lastName: row.lastName,
+                    media: []
+                })
+            }
+
+            if(row.mediaId) {
+                postMap.get(row.postId).media.push({
+                    mediaId: row.mediaId,
+                    type: row.mediaType,
+                    storageKey: row.storageKey,
+                    mimeType: row.mimeType,
+                    width: row.width,
+                    height: row.height,
+                    duration: row.duration,
+                    sortOrder: row.sortOrder
+                })
+            }
         }
 
+        const postsWithMedia = Array.from(postMap.values());
+
         return res.status(200).json({
-            posts: result
+            posts: postsWithMedia
         })
     }catch (error) {
         console.error('Get posts error', error)
@@ -557,6 +689,92 @@ app.delete('/api/posts/:postId', authenticateToken, async (req, res) => {
     }catch (error) {
         console.error('Delete post error', error)
         return res.status(500).json({error: 'Failed to delete post'})
+    }
+})
+
+
+app.post('/api/media', authenticateToken, imageUpload.single('file'), async (req, res) => {
+    if(!req.file) {
+        return res.status(400).json({error:'No file uploaded'})
+    }
+
+    try{
+        const mediaType = 'image'
+
+        const storageKey =`images/${req.file.filename}`
+
+        const [newMedia] = await db.insert(media).values({
+            uploadedBy: req.user.userId,
+            type: mediaType,
+            storageKey: storageKey,
+            mimeType: req.file.mimetype
+        }).returning()
+
+        return res.status(201).json({message:'Media uploaded successfully', media: newMedia})
+    }catch (error){
+        console.error('Media upload error:', error)
+
+        //if database insertion fails remove uploaded file
+        try {
+            if(req.file?.path) {
+                fs.unlinkSync(req.file.path)
+            }
+        }catch (deleteError) {
+            console.error('Failed to remove uploaded file:', deleteError)
+        }
+
+        return res.status(500).json({error: 'Failed to save media'})
+    }
+})
+app.get('/api/media/:mediaId', async (req, res) => {
+    const {mediaId} = req.params
+
+    try{
+        const result = await db.select().from(media).where(eq(media.mediaId, mediaId))
+
+        if(result.length === 0) {
+            return res.status(404).json({error: 'Media not found'})
+        }
+
+        return res.status(200).json({media: result[0]})
+    }catch (error) {
+        console.error('Get media error: ', error)
+        return res.status(500).json({error: 'Failed to retrieve media'})
+    }
+})
+
+app.delete('/api/media/:mediaId', authenticateToken, async (req, res) => {
+    const {mediaId} = req.params
+    const userId = req.user.userId
+
+    try{
+        const result = await db.select().from(media).where(and(
+            eq(
+                media.mediaId, mediaId
+            ),
+            eq(
+                media.uploadedBy,
+                userId
+            )
+        ))
+
+        if(result.length === 0) {
+            return res.status(404).json({error: 'Media not found or user did upload this media'})
+        }
+        const mediaFile = result[0]
+        const filePath = path.join(uploadDirectory, mediaFile.storageKey)
+
+        if(fs.existsSync(filePath)){
+            fs.unlinkSync(filePath)
+        }
+
+        await db.delete(media).where(eq(media.mediaId, mediaId))
+
+        return res.status(200).json({message: 'Media deleted successfully'})
+    }catch (error) {
+        console.error('Delete media error: ', error)
+
+        return res.status(500).json({error: 'Failed to delete media'})
     }
 })
 

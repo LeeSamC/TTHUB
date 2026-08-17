@@ -14,8 +14,11 @@ const isEditingPost = ref(false)
 
 const content = ref('')
 const editContent = ref('')
-
 const editingPostId = ref('')
+
+const selectedFile = ref(null)
+const imagePreview = ref('')
+const isUploadingMedia = ref(false)
 
 
 const showModal = ref(false)
@@ -23,6 +26,7 @@ const showModal = ref(false)
 const openModal = () => {
   content.value = ''
   errorMessage.value = ''
+  removeSelectedFile()
   showModal.value = true
 }
 
@@ -30,6 +34,7 @@ const closeModal = () => {
     if (isCreatingPost.value) return
     content.value = ''
     errorMessage.value = ''
+    removeSelectedFile()
     showModal.value = false
 }
 
@@ -43,7 +48,7 @@ const handlePostContent = async () => {
     return
   }
 
-  if(!content.value.trim()) {
+  if(!content.value.trim() && !selectedFile.value) {
     errorMessage.value = 'Post content cannot be empty'
     return
   }
@@ -51,14 +56,36 @@ const handlePostContent = async () => {
   isCreatingPost.value = true
 
   try{
+    let mediaIds = []
+
+    if(selectedFile.value) {
+      isUploadingMedia.value = true
+
+      const formData = new FormData()
+
+      formData.append('file', selectedFile.value)
+
+      const mediaResponse = await api.post('/media',  formData)
+
+      const uploadMedia = mediaResponse.data.media
+
+      mediaIds.push(uploadMedia.mediaId)
+
+      isUploadingMedia.value = false
+    }
+
+
     const res = await api.post('/posts', {
-      content: content.value.trim()
+      content: content.value.trim(),
+      mediaIds: mediaIds
     })
 
     console.log('Post created:', res.data)
 
     //Reload Post
     await loadPosts()
+
+    removeSelectedFile()
 
     showModal.value = false
     content.value = ''
@@ -68,6 +95,7 @@ const handlePostContent = async () => {
     errorMessage.value = err.response?.data?.error || 'Failed to create post'
   }finally {
     isCreatingPost.value = false
+    isUploadingMedia.value = false
   }
 }
 
@@ -143,6 +171,42 @@ const loadPosts = async () => {
   }
 }
 
+const handleFileSelect = (event) => {
+  const file = event.target.files[0]
+
+  if(!file) {
+    return 
+  }
+
+  if(!file.type.startsWith('image/')) {
+    errorMessage.value = 'Please select an image file'
+    event.target.value = ''
+    return
+  }
+
+  if(file.size > 10 * 1024 * 1024) {
+    errorMessage.value = 'Please select an image file'
+    event.target.value = ''
+    return 
+  }
+
+  selectedFile.value = file
+
+  imagePreview.value = URL.createObjectURL(file)
+
+  errorMessage.value = ''
+    
+}
+
+const removeSelectedFile = () => {
+  if(imagePreview.value) {
+    URL.revokeObjectURL(imagePreview.value)
+  }
+
+  selectedFile.value = null
+  imagePreview.value = ''
+}
+
 
 onMounted(async () => {
   loadPosts()
@@ -176,7 +240,19 @@ onMounted(async () => {
 
           <div>
             <label class="block text-xs font-semibold text-slate-700 mb-1">Create a Post</label>
-            <input v-model="content" type="text" placeholder="I like cheese" @keyup.enter="handlePostContent" class="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500">
+            <textarea v-model="content" placeholder="Whats Happening" rows="3" class="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500 resize-none"></textarea>
+            <div class="flex items-center justify-between">
+              <label class="cursor-pointer inline-flex items-center gap-2 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md text-sm font-medium transition">
+                Add Image
+                <input type="file" accept="image/jpeg, image/png, image/webp, image/gif" class="hidden" @change="handleFileSelect">
+              </label>
+              <span v-if="selectedFile" class="text-xs text-gray-500">{{ selectedFile.name }}</span>
+            </div>
+            <div v-if="imagePreview" class="relative mt-3">
+              <img :src="imagePreview" alt="Selected image preview" class="w-full max-h-80 object-cover rounded-lg border border-slate-200">
+              <button type="button" @click="removeSelectedFile" class="absolute top-2 right-2 bg-black/70 text-white rounded-full w-8 h-8 flex items-center justify-center hover:bg-black transition">x</button>
+            </div>
+
           </div>
 
           <div class="flex justify-end gap-3 pt-2">
@@ -184,8 +260,8 @@ onMounted(async () => {
               Cancel
             </button>
 
-            <button type="button" @click="handlePostContent" :disabled="!content || isCreatingPost" class="px-4 py-2 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-sm font-medium rounded-md transition flex items-center gap-2">
-              {{ isCreatingPost ? 'Posting...' : 'Post' }}
+            <button type="button" @click="handlePostContent" :disabled="(!content.trim() && !selectedFile) || isCreatingPost" class="px-4 py-2 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-sm font-medium rounded-md transition flex items-center gap-2">
+              {{ isUploadingMedia ? 'Uploading...' : isCreatingPost ? 'Posting... ' : 'Post' }}
             </button>
           </div>
 
@@ -215,6 +291,18 @@ onMounted(async () => {
 
         <div v-else>
           <p class="text-gray-800">{{ post.content }}</p>
+
+          <div v-if="post.media && post.media.length > 0" class="mt-3 space-y-3">
+            <div v-for="item in post.media" :key="item.mediaId">
+              <img 
+              v-if="item.type === 'image'" 
+              :src="`http://localhost:3000/uploads/${item.storageKey}`" 
+              :alt="`Image uploaded by ${post.username || 'user'}`" 
+              class="w-full max-h-125 object-cover rounded-lg border border-slate-200"/>
+
+            </div>
+
+          </div>
 
           <div v-if="authStore.isAuthenticated && authStore.user?.userId === post.userId" class=" flex gap-4 mt-0.5">
             <button type="button" @click="startEditing(post)" class="text-indigo-600 hover:text-indigo-800 text-xs font-medium">
