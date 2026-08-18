@@ -29,9 +29,10 @@ const fs = require('fs')
 const crypto = require('crypto')            
 
 
-const {eq, and, isNull, desc} = require('drizzle-orm')
+const {eq, and, isNull, desc, inArray} = require('drizzle-orm')
 const {db} = require('./db')
 const {users, refreshTokens, posts, media, postMedia} = require('./schema');
+const { resourceLimits } = require('worker_threads')
 
 const app = express();
 
@@ -160,9 +161,16 @@ const userUpdateSchema = z.object({
 
 
 const createPostSchema = z.object({
-    content: z.string().trim().min(1, 'Post content cannot be empty').max(5000, 'Post content cannot exceed 5000 characters'),
-    mediaIds: z.array(z.string().uuid()).optional().default([])
-})
+    content: z.string().trim().min(1, 'Post content cannot be empty').max(5000, 'Post content cannot exceed 5000 characters').optional().default(''),
+    mediaIds: z.array(z.string().uuid()).max(10, 'A post cannot contain more than 10 media files').optional().default([])
+}).refine(
+    (data) => {
+        return data.content.length > 0 || data.mediaIds.length > 0
+    },
+    {
+        message: 'Post must contain text or media'
+    }
+)
 
 const updatePostSchema = z.object({
     content: z.string().trim().min(1, 'Post content cannot be empty').max(5000, 'Post content cannot exceed 5000 characters')
@@ -195,12 +203,12 @@ const authenticateToken = (req, res, next) => {
 
 
 // ============================================================
-// IMAGE STORAGE
+// MEDIA STORAGE
 // ============================================================
 
-const uploadDirectory = path.join(__dirname, 'uploads');
-const imageDirectory = path.join(uploadDirectory, 'images');
-const videoDirectory = path.join(uploadDirectory, 'videos');
+const uploadDirectory = path.join(__dirname, 'uploads')
+const imageDirectory = path.join(uploadDirectory, 'images')
+const videoDirectory = path.join(uploadDirectory, 'videos')
 
 fs.mkdirSync(imageDirectory, {
     recursive: true
@@ -211,11 +219,30 @@ fs.mkdirSync(videoDirectory, {
 })
 
 
-const imageStorage = multer.diskStorage({
+// ============================================================
+// MULTER STORAGE
+// ============================================================
+
+const mediaStorage = multer.diskStorage({
+
     destination: (req, file, cb) => {
-        cb(null, imageDirectory)
+
+        if (file.mimetype.startsWith('image/')) {
+
+            cb(null, imageDirectory)
+
+        } else if (file.mimetype.startsWith('video/')) {
+
+            cb(null, videoDirectory)
+
+        } else {
+
+            cb(new Error('Unsupported media type'))
+        }
     },
+
     filename: (req, file, cb) => {
+
         const extension = path.extname(file.originalname)
 
         const filename = `${crypto.randomUUID()}${extension}`
@@ -224,32 +251,85 @@ const imageStorage = multer.diskStorage({
     }
 })
 
-const imageUpload = multer({
-    storage: imageStorage,
-    
+
+// ============================================================
+// MULTER MEDIA UPLOAD
+// ============================================================
+
+const mediaUpload = multer({
+
+    storage: mediaStorage,
+
     limits: {
-        fileSize: 10 * 1024 * 1024
+        fileSize: 100 * 1024 * 1024
     },
 
     fileFilter: (req, file, cb) => {
-        const allowedTypes = [
+
+        const allowedImageTypes = [
             'image/jpeg',
             'image/png',
             'image/webp',
             'image/gif'
-        ];
+        ]
 
-        if(!allowedTypes.includes(file.mimetype)) {
-            return cb(new error('Only image files are allowed')
+        const allowedVideoTypes = [
+            'video/mp4',
+            'video/webm',
+            'video/quicktime'
+        ]
+
+        const allowedTypes = [
+            ...allowedImageTypes,
+            ...allowedVideoTypes
+        ]
+
+        if (!allowedTypes.includes(file.mimetype)) {
+
+            return cb(
+                new Error('Unsupported media type')
             )
         }
+
         cb(null, true)
     }
-
 })
 
-//Expose upload directory so the broswer can see the file
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')))
+
+// ============================================================
+// MEDIA INFORMATION HELPER
+// ============================================================
+
+function getMediaInfo(file) {
+
+    if (file.mimetype.startsWith('image/')) {
+
+        return {
+            type: 'image',
+            storageKey: `images/${file.filename}`
+        }
+    }
+
+    if (file.mimetype.startsWith('video/')) {
+
+        return {
+            type: 'video',
+            storageKey: `videos/${file.filename}`
+        }
+    }
+
+    throw new Error('Unsupported media type')
+}
+
+
+// ============================================================
+// SERVE UPLOADED MEDIA
+// ============================================================
+
+app.use(
+    '/uploads',
+    express.static(uploadDirectory)
+)
 
 
 app.post('/api/auth/register', async (req, res) => {
@@ -446,6 +526,38 @@ app.delete('/api/profile/delete', authenticateToken, async (req,res) => {
 
 
 
+async function getPostMedia(postId, req) {
+    const result = await db.select({
+        mediaId: media.mediaId,
+        type: media.type,
+        storageKey: media.storageKey,
+        mimeType: media.mimeType,
+        width: media.width,
+        height: media.height,
+        duration: media.duration,
+        sortOrder: postMedia.sortOrder
+    })
+    .from(postMedia)
+    .innerJoin(
+        media,
+        eq(postMedia.mediaId, media.mediaId)
+    )
+    .where(
+        eq(postMedia.postId, postId)
+    )
+    .orderBy(
+        postMedia.sortOrder
+    )
+
+    return result.map(item => ({
+        ...item,
+
+        url: `${req.protocol}://${req.get('host')}/uploads/${item.storageKey}`
+    }))
+}
+
+
+
 
 app.post('/api/posts', authenticateToken, async (req, res) => {
     const validation = createPostSchema.safeParse(req.body)
@@ -459,9 +571,33 @@ app.post('/api/posts', authenticateToken, async (req, res) => {
     const {content, mediaIds} = validation.data
 
     try{
+
+        if(mediaIds.length > 0) {
+            const userMedia = await db.select({mediaId: media.mediaId}).from(media).where(
+                and(
+                    inArray(media.mediaId, mediaIds),
+                    eq(media.uploadedBy, userId)
+                )
+            )
+
+            const ownedMediaIds = new Set(
+                userMedia.map(item => item.mediaId)
+            )
+
+            const unauthorizedMedia = mediaIds.filter(
+                mediaId => !ownedMediaIds.has(mediaId)
+            )
+
+            if(unauthorizedMedia.length > 0) {
+                return res.status(403).json({
+                    error: 'You cannot attach media that you do not own'
+                })
+            }
+        }
+
         const [newPost] = await db.insert(posts).values({
             userId: userId,
-            content: content
+            content: content || null
         }).returning()
 
         if(mediaIds.length > 0) {
@@ -476,7 +612,12 @@ app.post('/api/posts', authenticateToken, async (req, res) => {
             ))
         }
 
-        return res.status(201).json({message: 'Post created', post: newPost})
+        const postMediaItems = await getPostMedia(
+            newPost.postId,
+            req
+        )
+
+        return res.status(201).json({message: 'Post created', post: {...newPost, media: postMediaItems}})
     }catch (error) {
         console.error('Create post error', error)
 
@@ -486,7 +627,7 @@ app.post('/api/posts', authenticateToken, async (req, res) => {
     }
 })
 
-app.get('/api/posts/:postId', authenticateToken, async (req, res) => {
+app.get('/api/posts/:postId', async (req, res) => {
     const  {postId} = req.params
 
     try{
@@ -519,7 +660,14 @@ app.get('/api/posts/:postId', authenticateToken, async (req, res) => {
             return res.status(404).json({error: 'Post not found'})
         }
 
-        return res.status(200).json({post: result[0]})
+        const post = result[0]
+
+        const postMediaItems = await getPostMedia(
+            post.postId,
+            req
+        )
+
+        return res.status(200).json({post: {...post, media: postMediaItems}})
 
     }catch (error) {
         console.error('Get post error', error)
@@ -541,14 +689,6 @@ app.get('/api/posts', async (req, res) => {
             firstName: users.firstName,
             lastName: users.lastName,
 
-            mediaId: media.mediaId,
-            mediaType: media.type,
-            storageKey: media.storageKey,
-            mimeType: media.mimeType,
-            width: media.width,
-            height: media.height,
-            duration: media.duration,
-            sortOrder: postMedia.sortOrder
         }).from(posts)
         .innerJoin(
             users,
@@ -557,14 +697,6 @@ app.get('/api/posts', async (req, res) => {
                 users.userId
             )
         )
-        .leftJoin(
-            postMedia,
-            eq(posts.postId, postMedia.postId)
-        )
-        .leftJoin(media,
-            eq(postMedia.mediaId, media.mediaId)
-            
-        )
         .where(
             isNull(posts.deletedAt)
         )
@@ -572,38 +704,25 @@ app.get('/api/posts', async (req, res) => {
             desc(posts.createdAt)
         )
 
-        const postMap = new Map();
-
-        for(const row of result){
-            if(!postMap.has(row.postId)){
-                postMap.set(row.postId, {
-                    postId: row.postId,
-                    content: row.content,
-                    createdAt: row.createdAt,
-                    updatedAt: row.updatedAt,
-                    userId: row.userId,
-                    username: row.username,
-                    firstName: row.firstName,
-                    lastName: row.lastName,
-                    media: []
-                })
-            }
-
-            if(row.mediaId) {
-                postMap.get(row.postId).media.push({
-                    mediaId: row.mediaId,
-                    type: row.mediaType,
-                    storageKey: row.storageKey,
-                    mimeType: row.mimeType,
-                    width: row.width,
-                    height: row.height,
-                    duration: row.duration,
-                    sortOrder: row.sortOrder
-                })
-            }
+        if(result.length === 0) {
+            return res.status(200).json({post: []})
         }
 
-        const postsWithMedia = Array.from(postMap.values());
+
+
+        const postsWithMedia = await Promise.all(
+            result.map(async post => {
+                const postMediaItems = 
+                    await getPostMedia(
+                        post.postId,
+                        req
+                    )
+                return {
+                    ...post,
+                    media: postMediaItems
+                }
+            })
+        )
 
         return res.status(200).json({
             posts: postsWithMedia
@@ -616,108 +735,71 @@ app.get('/api/posts', async (req, res) => {
 
 })
 
-app.patch('/api/posts/:postId', authenticateToken, imageUpload.single('file'), async (req, res) => {
-    const {postId} = req.params
+app.patch('/api/posts/:postId', authenticateToken, async (req, res) => {
+
+    const { postId } = req.params
 
     const userId = req.user.userId
 
     const validation = updatePostSchema.safeParse(req.body)
 
     if (!validation.success) {
-       if (req.file?.path && fs.existsSync(req.file.path)) {
-        fs.unlinkSync(req.file.path)
-      }
-
-      return res.status(400).json({
-        error: validation.error.flatten().fieldErrors
-      })
+        return res.status(400).json({
+            error: validation.error.flatten().fieldErrors
+        })
     }
 
-    try{
-        const existingPost = await db.select({postId: posts.postId}).from(posts).where(
-            and(
-                eq(posts.postId, postId),
-                eq(posts.userId, userId),
-                isNull(posts.deletedAt)
+    try {
+
+        const [updatedPost] = await db
+            .update(posts)
+            .set({
+                content: validation.data.content,
+                updatedAt: new Date()
+            })
+            .where(
+                and(
+                    eq(posts.postId, postId),
+                    eq(posts.userId, userId),
+                    isNull(posts.deletedAt)
+                )
             )
-        )
+            .returning()
 
-        if(existingPost.length === 0) {
-            if (req.file?.path && fs.existsSync(req.file.path)) {
-                fs.unlinkSync(req.file.path)
-            }
-
+        if (!updatedPost) {
             return res.status(404).json({
-            error: 'Post not found or you do not own this post'
+                error: 'Post not found or you do not own this post'
             })
         }
 
+        // Get attached media
+        const postMediaItems = await getPostMedia(
+            updatedPost.postId,
+            req
+        )
 
+        return res.status(200).json({
+            message: 'Post updated successfully',
 
-        const [updatePost] = await db.update(posts).set({content: validation.data.content, updatedAt: new Date()}).where(
-            and(
-                eq(
-                    posts.postId,
-                        postId
-                ),
-
-                eq(
-                    posts.userId,
-                    userId
-                ),
-                isNull(
-                    posts.deletedAt
-                )
-            )
-        ).returning()
-
-        if(req.file) {
-            const existingMedia = await db.select({mediaId: media.mediaId, storageKey: media.storageKey}).from(postMedia)
-                                        .innerJoin(
-                                            media,
-                                            eq(postMedia.mediaId, media.mediaId)
-                                        ).where(
-                                            eq(postMedia.postId, postId)
-                                        )
-
-            const storageKey = `images/${req.file.filename}`
-
-            const [newMedia] = await db.insert(media).values({uploadedBy: userId, type: 'image', storageKey: storageKey, mimeType: req.file.mimetype}).returning()
-
-            await db.delete(postMedia).where(eq(postMedia.postId, postId))
-
-            await db.insert(postMedia).values({postId: postId, mediaId: newMedia.mediaId, sortOrder: 0})
-
-            for (const oldMedia of existingMedia) {
-                const oldFilePath = path.join(uploadDirectory, oldMedia.storageKey)
-
-                if(fs.existsSync(oldFilePath)) {
-                    fs.unlinkSync(oldFilePath)
-                }
-
-                await db.delete(media).where(eq(media.mediaId, oldMedia.mediaId))
+            post: {
+                ...updatedPost,
+                media: postMediaItems
             }
+        })
 
-        }
+    } catch (error) {
 
-        return res.status(200).json({message: 'Post updated successfully', posts: updatePost})
-    }catch (error) {
-        console.error('Update post error', error)
+        console.error(
+            'Update post error:',
+            error
+        )
 
-        if(req.file?.path && fs.existsSync(req.file.path)) {
-            try{
-                fs.unlinkSync(req.file.path)
-            }catch (cleanupError) {
-                console.error (
-                    'Failed to remove uploaded file: ', cleanupError
-                )
-            }
-        }
-
-
-        return res.status(500).json({error: 'Failed to update post'})
+        return res.status(500).json({
+            error: 'Failed to update post'
+        })
     }
 })
+
 
 app.delete('/api/posts/:postId', authenticateToken, async (req, res) => {
 
@@ -775,39 +857,244 @@ app.delete('/api/posts/:postId', authenticateToken, async (req, res) => {
 })
 
 
-app.post('/api/media', authenticateToken, imageUpload.single('file'), async (req, res) => {
-    if(!req.file) {
-        return res.status(400).json({error:'No file uploaded'})
-    }
+app.post(
+    '/api/media',
+    authenticateToken,
+    mediaUpload.single('file'),
+    async (req, res) => {
 
-    try{
-        const mediaType = 'image'
-
-        const storageKey =`images/${req.file.filename}`
-
-        const [newMedia] = await db.insert(media).values({
-            uploadedBy: req.user.userId,
-            type: mediaType,
-            storageKey: storageKey,
-            mimeType: req.file.mimetype
-        }).returning()
-
-        return res.status(201).json({message:'Media uploaded successfully', media: newMedia})
-    }catch (error){
-        console.error('Media upload error:', error)
-
-        //if database insertion fails remove uploaded file
-        try {
-            if(req.file?.path) {
-                fs.unlinkSync(req.file.path)
-            }
-        }catch (deleteError) {
-            console.error('Failed to remove uploaded file:', deleteError)
+        if (!req.file) {
+            return res.status(400).json({
+                error: 'No file uploaded'
+            })
         }
 
-        return res.status(500).json({error: 'Failed to save media'})
+        try {
+
+            const {
+                type: mediaType,
+                storageKey
+            } = getMediaInfo(req.file)
+
+            const [newMedia] = await db
+                .insert(media)
+                .values({
+                    uploadedBy: req.user.userId,
+                    type: mediaType,
+                    storageKey: storageKey,
+                    mimeType: req.file.mimetype
+                })
+                .returning()
+
+            return res.status(201).json({
+                message: 'Media uploaded successfully',
+                media: newMedia
+            })
+
+        } catch (error) {
+
+            console.error(
+                'Media upload error',
+                error
+            )
+
+            try {
+
+                if (
+                    req.file?.path &&
+                    fs.existsSync(req.file.path)
+                ) {
+                    fs.unlinkSync(req.file.path)
+                }
+
+            } catch (deleteError) {
+
+                console.error(
+                    'Failed to remove uploaded file',
+                    deleteError
+                )
+            }
+
+            return res.status(500).json({
+                error: 'Failed to save media'
+            })
+        }
     }
-})
+)
+
+app.put(
+    '/api/posts/:postId/media',
+    authenticateToken,
+    mediaUpload.single('file'),
+    async (req, res) => {
+
+        const { postId } = req.params
+        const userId = req.user.userId
+
+        if (!req.file) {
+            return res.status(400).json({
+                error: 'No file uploaded'
+            })
+        }
+
+        try {
+            // ============================================
+            // 1. Make sure the post belongs to the user
+            // ============================================
+
+            const existingPost = await db
+                .select({
+                    postId: posts.postId
+                })
+                .from(posts)
+                .where(
+                    and(
+                        eq(posts.postId, postId),
+                        eq(posts.userId, userId),
+                        isNull(posts.deletedAt)
+                    )
+                )
+
+            if (existingPost.length === 0) {
+
+                // Remove newly uploaded file because
+                // the post doesn't exist/belong to user
+                try {
+                    fs.unlinkSync(req.file.path)
+                } catch (deleteError) {
+                    console.error(
+                        'Failed to remove uploaded file:',
+                        deleteError
+                    )
+                }
+
+                return res.status(404).json({
+                    error: 'Post not found or you do not own this post'
+                })
+            }
+
+
+            // ============================================
+            // 2. Find existing media attached to post
+            // ============================================
+
+            const existingMedia = await db
+                .select({
+                    mediaId: postMedia.mediaId,
+                    storageKey: media.storageKey
+                })
+                .from(postMedia)
+                .innerJoin(
+                    media,
+                    eq(postMedia.mediaId, media.mediaId)
+                )
+                .where(
+                    eq(postMedia.postId, postId)
+                )
+
+
+            // ============================================
+            // 3. Create new media record
+            // ============================================
+
+            const {
+                type: mediaType,
+                storageKey
+            } = getMediaInfo(req.file)
+
+            const [newMedia] = await db
+                .insert(media)
+                .values({
+                    uploadedBy: userId,
+                    type: mediaType,
+                    storageKey: storageKey,
+                    mimeType: req.file.mimetype
+                })
+                .returning()
+
+
+            // ============================================
+            // 4. Remove old post_media relationships
+            // ============================================
+
+            await db
+                .delete(postMedia)
+                .where(
+                    eq(postMedia.postId, postId)
+                )
+
+
+            // ============================================
+            // 5. Attach new media to post
+            // ============================================
+
+            await db
+                .insert(postMedia)
+                .values({
+                    postId: postId,
+                    mediaId: newMedia.mediaId,
+                    sortOrder: 0
+                })
+
+
+            // ============================================
+            // 6. Delete old media records/files
+            // ============================================
+
+            for (const oldMedia of existingMedia) {
+
+                const oldFilePath = path.join(
+                    uploadDirectory,
+                    oldMedia.storageKey
+                )
+
+                if (fs.existsSync(oldFilePath)) {
+                    fs.unlinkSync(oldFilePath)
+                }
+
+                await db
+                    .delete(media)
+                    .where(
+                        eq(media.mediaId, oldMedia.mediaId)
+                    )
+            }
+
+
+            // ============================================
+            // 7. Return new media
+            // ============================================
+
+            return res.status(200).json({
+                message: 'Post media replaced successfully',
+                media: newMedia
+            })
+
+        } catch (error) {
+
+            console.error(
+                'Replace post media error:',
+                error
+            )
+
+            // Delete newly uploaded file if something failed
+            try {
+                fs.unlinkSync(req.file.path)
+            } catch (deleteError) {
+                console.error(
+                    'Failed to remove uploaded file:',
+                    deleteError
+                )
+            }
+
+            return res.status(500).json({
+                error: 'Failed to replace post media'
+            })
+        }
+    }
+)
+
+
+
 app.get('/api/media/:mediaId', async (req, res) => {
     const {mediaId} = req.params
 
