@@ -29,9 +29,12 @@ const fs = require('fs')
 const crypto = require('crypto')            
 
 
-const {eq, and, isNull, desc, inArray} = require('drizzle-orm')
+const {eq, and, isNull, desc, inArray, sql} = require('drizzle-orm')
 const {db} = require('./db')
-const {users, refreshTokens, posts, media, postMedia} = require('./schema');
+const {users, refreshTokens, posts, media, postMedia, likes} = require('./schema');
+const { 
+  number
+} = require('drizzle-orm/pg-core');
 const { resourceLimits } = require('worker_threads')
 
 const app = express();
@@ -200,6 +203,29 @@ const authenticateToken = (req, res, next) => {
     })
 
 };
+
+const optionalAuthenticateToken  = (req, res, next) => {
+    const accessToken = req.cookies.accessToken
+
+    if(!accessToken) {
+        req.user = null
+        return next()
+    }
+
+    jwt.verify(
+        accessToken,
+        process.env.ACCESS_TOKEN_SECRET,
+        (err, decoded) => {
+            if(err) {
+                req.user = null
+                return next()
+            }
+
+            req.user = decoded
+            next()
+        }
+    )
+}
 
 
 // ============================================================
@@ -674,49 +700,60 @@ app.get('/api/posts/:postId', async (req, res) => {
         return res.status(500).json({error: 'Failed to retrieve post'})
     }
 })
+app.get('/api/posts', optionalAuthenticateToken, async (req, res) => {
+    const currentUserId = req.user?.userId ?? null
 
-app.get('/api/posts', async (req, res) => {
+    try {
+        const result = await db
+            .select({
+                postId: posts.postId,
+                content: posts.content,
+                createdAt: posts.createdAt,
+                updatedAt: posts.updatedAt,
 
-    try{
-        const result = await db.select({
-            postId: posts.postId,
-            content: posts.content,
-            createdAt: posts.createdAt,
-            updatedAt: posts.updatedAt,
+                userId: users.userId,
+                username: users.username,
+                firstName: users.firstName,
+                lastName: users.lastName,
 
-            userId: users.userId,
-            username: users.username,
-            firstName: users.firstName,
-            lastName: users.lastName,
+                likeCount: sql`
+                    (
+                        SELECT COUNT(*)::int
+                        FROM ${likes}
+                        WHERE ${likes.postId} = ${posts.postId}
+                    )
+                `.as('likeCount'),
 
-        }).from(posts)
-        .innerJoin(
-            users,
-            eq(
-                posts.userId,
-                users.userId
+                likedByCurrentUser: currentUserId
+                    ? sql`
+                        EXISTS (
+                            SELECT 1
+                            FROM ${likes}
+                            WHERE ${likes.postId} = ${posts.postId}
+                            AND ${likes.userId} = ${currentUserId}
+                        )
+                    `.as('likedByCurrentUser')
+                    : sql`false`.as('likedByCurrentUser')
+            })
+            .from(posts)
+            .leftJoin(
+                users,
+                eq(posts.userId, users.userId)
             )
-        )
-        .where(
-            isNull(posts.deletedAt)
-        )
-        .orderBy(
-            desc(posts.createdAt)
-        )
-
-        if(result.length === 0) {
-            return res.status(200).json({post: []})
-        }
-
-
+            .where(
+                isNull(posts.deletedAt)
+            )
+            .orderBy(
+                desc(posts.createdAt)
+            )
 
         const postsWithMedia = await Promise.all(
-            result.map(async post => {
-                const postMediaItems = 
-                    await getPostMedia(
-                        post.postId,
-                        req
-                    )
+            result.map(async (post) => {
+                const postMediaItems = await getPostMedia(
+                    post.postId,
+                    req
+                )
+
                 return {
                     ...post,
                     media: postMediaItems
@@ -727,13 +764,16 @@ app.get('/api/posts', async (req, res) => {
         return res.status(200).json({
             posts: postsWithMedia
         })
-    }catch (error) {
-        console.error('Get posts error', error)
 
-        return res.status(500).json({error: 'Failed to retrieve posts'})
+    } catch (error) {
+        console.error('Get posts error:', error)
+
+        return res.status(500).json({
+            error: 'Failed to retrieve posts'
+        })
     }
-
 })
+
 
 app.patch('/api/posts/:postId', authenticateToken, async (req, res) => {
 
@@ -1144,6 +1184,88 @@ app.delete('/api/media/:mediaId', authenticateToken, async (req, res) => {
         console.error('Delete media error: ', error)
 
         return res.status(500).json({error: 'Failed to delete media'})
+    }
+})
+
+
+app.post('/api/posts/:postId/like', authenticateToken, async (req, res) => {
+    const {postId} = req.params
+    const userId = req.user.userId
+
+    try{
+       const post = await db.select({postId: posts.postId}).from(posts).where(eq(posts.postId, postId)).limit(1)
+
+       if(post.length === 0){
+        return res.status(404).json({error: 'Post not found'})
+       }
+
+       const existingLike = await db.select({likeId: likes.likeId}).from(likes).where(
+        and(
+            eq(likes.postId, postId),
+            eq(likes.userId, userId)
+        )
+       ).limit(1)
+
+       if (existingLike.length > 0) {
+        return res.status(409).json({message:'Post already liked'})
+       }
+
+       const [like] = await db.insert(likes).values({
+                        userId: userId,
+                        postId: postId
+                    }).returning()
+        
+        return res.status(200).json({message:'Post liked', like})
+
+    }catch (error) {
+        console.error('Error liking post', error)
+
+        return res.status(500).json('Failed to like post')
+    }
+})
+
+app.get('/api/posts/:postId/like', authenticateToken, async (req, res) => {
+    const {postId} = req.params
+    const userId = req.user.userId
+
+    try{
+        const like = await db.select({likeId: likes.likeId}).from(likes).where(
+            and(
+                eq(likes.postId, postId),
+                eq(likes.userId, userId)
+            )
+        ).limit(1)
+
+        return res.status(200).json({liked: like.length > 0})
+    }catch (error){
+        console.error('Error checking like', like)
+
+        return res.status(500).json({error: 'Failed to check like'})
+    }
+})
+
+app.delete('/api/posts/:postId/like', authenticateToken, async (req, res) => {
+    const {postId} = req.params
+    const userId = req.user.userId
+
+    try{
+        const deletedLike = await db.delete(likes).where(
+            and(
+                eq(likes.postId, postId),
+                eq(likes.userId, userId)
+            )
+        ).returning()
+
+        if(deletedLike.length === 0) {
+            return res.status(404).json({error: 'Like not found'})
+        }
+
+        return res.status(200).json({message: 'Post unliked'})
+
+    }catch (error) {
+        console.error('Error unliking post: ', error)
+
+        return res.status(500).json({error: 'Failed to unlike post'})
     }
 })
 

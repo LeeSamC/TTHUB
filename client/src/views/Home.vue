@@ -1,12 +1,14 @@
 <script setup>
 import { ref, onMounted, reactive } from 'vue';
 import api from '../api/api';
-import { useAuthStore } from '../stores/auth';
+import { useAuthStore } from '../stores/auth';;
 
 const authStore = useAuthStore();
 
 const posts = ref([])
 const loading = ref(true)
+const likedPostId = ref('')
+
 const errorMessage = ref('')
 
 const isCreatingPost = ref(false)
@@ -205,7 +207,11 @@ const loadPosts = async () => {
 
   try{
     const res = await api.get('/posts')
-    posts.value = res.data.posts || []
+    posts.value = (res.data.posts || []).map(post => ({
+      ...post,
+      likeCount: post.likeCount || 0,
+      likedByCurrentUser: post.likedByCurrentUser || false
+    }))
   }catch (error) {
     console.error(error)
     errorMessage.value = error.response?.data?.error || 'Failed to fetch post'
@@ -331,6 +337,39 @@ const getMediaUrl = (item) => {
   return `http://localhost:3000/uploads/${item.storageKey}`
 }
 
+const handleLike = async (post) => {
+  if(!authStore.isAuthenticated){
+    errorMessage.value = 'Must be logged in to like a post'
+    return
+  }
+
+  if(likedPostId.value === post.postId){
+    return
+  }
+
+  likedPostId.value = post.postId
+  errorMessage.value = ''
+
+  try{
+    if(post.likedByCurrentUser) {
+      await api.delete(`/posts/${post.postId}/like`)
+
+      post.likedByCurrentUser = false
+      post.likeCount = Math.max(0, (post.likeCount || 0) - 1)
+    }else{
+      await api.post(`/posts/${post.postId}/like`)
+      post.likedByCurrentUser = true
+      post.likeCount = (post.likeCount || 0) + 1
+    }
+
+  }catch (err) {
+    console.error('Like error: ',err)
+    errorMessage.value = err.response?.data?.error || 'Failed to update like'
+  }finally{
+    likedPostId.value = null
+  }
+}
+
 
 onMounted(async () => {
   loadPosts()
@@ -454,6 +493,34 @@ onMounted(async () => {
 
             </div>
 
+          </div>
+          <div class="flex items-center gap-4 mt-3">
+            <button
+            v-if="authStore.isAuthenticated"
+            type="button"
+            @click="handleLike(post)"
+            :disabled="likedPostId === post.postId"
+            class="flex items-center gap-1.5 text-sm transition"
+            :class="post.likedByCurrentUser ? 'text-red-600' : 'text-gray-500 hover:text-red-600'"
+            >
+            <span class="text-lg">
+              {{ post.likedByCurrentUser ? '♥' : '♡' }}
+            </span>
+
+            <span>
+              {{ post.likeCount || 0 }} Likes
+            </span>
+
+            </button>
+
+            <span
+            v-else
+            class="flex items-center gap-1.5 text-sm text-gray-500"
+            >
+            <span class="text-lg">♡</span>
+            <span>{{ post.likeCount || 0 }} Likes</span>
+
+            </span>
           </div>
 
           <div v-if="authStore.isAuthenticated && authStore.user?.userId === post.userId" class=" flex gap-4 mt-0.5">

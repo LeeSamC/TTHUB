@@ -1,3 +1,4 @@
+const { unique } = require('drizzle-orm/gel-core');
 const { 
     pgTable, 
     uuid, 
@@ -83,5 +84,17 @@ const postMedia = pgTable('post_media', {
 
 )
 
+const likes = pgTable('likes', {
+    likeId: uuid('like_id').defaultRandom().primaryKey(),
+    userId: uuid('user_id').notNull().references(() => users.userId, {onDelete: 'cascade'}),
+    postId: uuid('post_id').notNull().references(() => posts.postId, {onDelete: 'cascade'}),
+    createdAt: timestamp('created_at').defaultNow().notNull()
+}, (table) => ({
+    uniqueUserPostLike :unique().on(
+        table.postId,
+        table.userId
+    )
+}))
 
-module.exports = {users, refreshTokens, posts, media, mediaTypeEnum, postMedia};
+
+module.exports = {users, refreshTokens, posts, media, mediaTypeEnum, postMedia, likes};
