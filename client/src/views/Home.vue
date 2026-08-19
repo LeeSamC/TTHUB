@@ -1,11 +1,21 @@
 <script setup>
 import { ref, onMounted, reactive } from 'vue';
 import api from '../api/api';
-import { useAuthStore } from '../stores/auth';;
+import { useAuthStore } from '../stores/auth';
 
 const authStore = useAuthStore();
 
 const posts = ref([])
+
+const currentPage = ref(1)
+const pageSize = ref(10)
+
+const totalPages= ref(1)
+const hasNextPage = ref(false)
+const hasPreviousPage = ref(false)
+
+
+
 const loading = ref(true)
 const likedPostId = ref('')
 
@@ -200,18 +210,28 @@ const handleDeletePost = async (post) => {
 }
 
 
-const loadPosts = async () => {
+const loadPosts = async (page = currentPage.value) => {
 
   loading.value = true
   errorMessage.value = ''
 
   try{
-    const res = await api.get('/posts')
+    const res = await api.get('/posts', {
+      params: {
+        page,
+        limit: pageSize.value
+      }
+    })
     posts.value = (res.data.posts || []).map(post => ({
       ...post,
       likeCount: post.likeCount || 0,
       likedByCurrentUser: post.likedByCurrentUser || false
     }))
+
+    currentPage.value = res.data.pagination.page
+    totalPages.value = res.data.pagination.totalPages
+    hasNextPage.value = res.data.pagination.hasNextPage
+    hasPreviousPage.value = res.data.pagination.hasPreviousPage
   }catch (error) {
     console.error(error)
     errorMessage.value = error.response?.data?.error || 'Failed to fetch post'
@@ -368,6 +388,22 @@ const handleLike = async (post) => {
   }finally{
     likedPostId.value = null
   }
+}
+
+const nextPage = async () => {
+  if(!hasNextPage.value) {
+    return
+  }
+
+  await loadPosts(currentPage.value + 1)
+}
+
+const previousPage = async () => {
+  if(!hasPreviousPage.value) {
+    return
+  }
+
+  await loadPosts(currentPage.value - 1)
 }
 
 
@@ -539,6 +575,31 @@ onMounted(async () => {
           <span>{{ new Date(post.createdAt).toLocaleDateString() }}</span>
         </div>
       </div>
+    </div>
+
+    <div v-if="posts.length > 0" class="flex items-center justify-between mt-6">
+      <button
+      type="button"
+      @click="previousPage"
+      :disabled="!hasPreviousPage || loading"
+      class="px-4 py-2 bg-slate-100 rounded-md disabled:opacity-50"
+      >
+        Previous
+      </button>
+
+      <span class="text-sm text-gray-500">
+        Page {{ currentPage }} of {{ totalPages }}
+      </span>
+
+      <button
+      type="button"
+      @click="nextPage"
+      :disabled="!hasNextPage || loading"
+      class="px-4 py-2 bg-indigo-600 text-white rounded-md disabled:opacity-50"
+      >
+        Next
+      </button>
+
     </div>
     <p v-else-if="errorMessage" class="text-red-500">{{ errorMessage }}</p>
     <p v-else class="text-grey-500">No posts yet</p>
