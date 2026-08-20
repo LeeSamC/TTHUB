@@ -96,5 +96,16 @@ const likes = pgTable('likes', {
     )
 }))
 
+const comments = pgTable('comments', {
+    commentId: uuid('comment_id').defaultRandom().primaryKey(),
+    postId: uuid('post_id').notNull().references(() => posts.postId, {onDelete: 'cascade'}),
+    userId: uuid('user_id').notNull().references(() => users.userId, {onDelete: 'cascade'}),
+    parentCommentId: uuid('parent_comment_id').references(() => comments.commentId, {onDelete: 'cascade'}),
+    content: text('content').notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+    deletedAt: timestamp('deleted_at')
+})
 
-module.exports = {users, refreshTokens, posts, media, mediaTypeEnum, postMedia, likes};
+
+module.exports = {users, refreshTokens, posts, media, mediaTypeEnum, postMedia, likes, comments};

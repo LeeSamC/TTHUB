@@ -20,7 +20,7 @@ const bcrypt = require('bcryptjs')
 const jwt = require('jsonwebtoken')
 
 //Validate incoming request data
-const {z} = require('zod')
+const {z, safeParse} = require('zod')
 
 //Handle mulitpart/form data for media 
 const multer = require('multer')
@@ -29,9 +29,9 @@ const fs = require('fs')
 const crypto = require('crypto')            
 
 
-const {eq, and, isNull, desc, inArray, sql} = require('drizzle-orm')
+const {eq, and, isNull, desc, inArray, sql, asc} = require('drizzle-orm')
 const {db} = require('./db')
-const {users, refreshTokens, posts, media, postMedia, likes} = require('./schema');
+const {users, refreshTokens, posts, media, postMedia, likes, comments} = require('./schema');
 const { 
   number
 } = require('drizzle-orm/pg-core');
@@ -179,6 +179,15 @@ const updatePostSchema = z.object({
     content: z.string().trim().min(1, 'Post content cannot be empty').max(5000, 'Post content cannot exceed 5000 characters')
 })
 
+
+const createCommentSchema = z.object({
+    content: z.string().trim().min(1, 'Comment cannot be empty').max(2000, 'Comment cannot exceed 2000 characters'),
+    parentCommentId: z.string().uuid().nullable().optional().default(null)
+})
+
+const updateCommentSchema = z.object({
+    content: z.string().trim().min(1, 'Comment cannot be empty').max(2000, 'Comment cannot exceed 2000 characters')
+})
 
 
 
@@ -739,7 +748,17 @@ app.get('/api/posts', optionalAuthenticateToken, async (req, res) => {
                             AND ${likes.userId} = ${currentUserId}
                         )
                     `.as('likedByCurrentUser')
-                    : sql`false`.as('likedByCurrentUser')
+                    : sql`false`.as('likedByCurrentUser'),
+                
+                commentCount: sql`
+                    (
+                        SELECT COUNT(*)::int
+                        FROM ${comments}
+                        WHERE ${comments.postId} = ${posts.postId}
+                        AND ${comments.deletedAt} IS NULL
+                    )
+                `.as('commentCount') 
+                
             })
             .from(posts)
             .leftJoin(
@@ -1351,6 +1370,182 @@ app.delete('/api/posts/:postId/like', authenticateToken, async (req, res) => {
     }
 })
 
+
+app.post('/api/posts/:postId/comments', authenticateToken, async(req, res) => {
+    const {postId} = req.params
+    const userId = req.user.userId
+
+    const validation = createCommentSchema.safeParse(req.body)
+
+    if(!validation.success) {
+        return res.status(400).json({error: validation.error.flatten().fieldErrors})
+    }
+
+    const {content, parentCommentId} = validation.data
+
+    try{
+        const post = await db.select({postId: posts.postId}).from(posts).where(and(eq(posts.postId, postId), isNull(posts.deletedAt))).limit(1)
+
+        if(post.length === 0) {
+            return res.status(404).json({error: 'Post not found'})
+        }
+
+        if(parentCommentId) {
+            const parentComment = await db.select({commentId: comments.commentId, postId: comments.postId}).from(comments).where(
+                                                    and(
+                                                        eq(comments.commentId, parentCommentId),
+                                                        eq(comments.postId, postId),
+                                                        isNull(comments.deletedAt)
+                                                    )
+                                            ).limit(1)
+
+            if(parentComment.length === 0) {
+                return res.status(404).json({error: 'Parent comment not found'})
+            }
+        }
+
+        const [newComment] = await db.insert(comments).values({postId, userId, parentCommentId, content}).returning()
+
+        return res.status(200).json({message: parentCommentId ? 'Reply created successfully' : 'Comment created successfully', comment: newComment})
+
+    }catch (error) {
+        console.error('Create comment error', error)
+
+        return res.status(500).json({error: 'Failed to create comment'})
+    }
+
+
+})
+
+app.get('/api/posts/:postId/comments', optionalAuthenticateToken, async(req, res) => {
+    const {postId} = req.params
+
+    try{
+        const post = await db.select({postId: posts.postId}).from(posts).where(
+            and(
+                eq(posts.postId, postId),
+                isNull(posts.deletedAt)
+            )
+        ).limit(1)
+
+        if(post.length === 0){
+            return res.status(404).json({error: 'Post not found'})
+        }
+
+        const result = await db.select({
+            commentId: comments.commentId,
+            postId: comments.postId,
+            parentCommentId: comments.parentCommentId,
+
+            content: comments.content,
+
+            createdAt: comments.createdAt,
+            updatedAt: comments.updatedAt,
+
+            userId: users.userId,
+            username: users.username,
+            firstName: users.firstName,
+            lastName: users.lastName
+        }).from(comments)
+        .innerJoin(
+            users,
+            eq(comments.userId, users.userId)
+        )
+        .where(
+            and(
+                eq(comments.postId, postId),
+                isNull(comments.deletedAt)
+            )
+        ).orderBy(asc(comments.createdAt))
+
+        const commentMap = new Map()
+
+        for(const comment of result){
+            commentMap.set(
+                comment.commentId,
+                {
+                    ...comment,
+                    replies: []
+                }
+            )
+        }
+
+        const rootComments = []
+
+        for(const comment of commentMap.values()){
+            if(comment.parentCommentId){
+                const parent = commentMap.get(comment.parentCommentId)
+
+                if(parent) {
+                    parent.replies.push(comment)
+                }
+            }else{
+                rootComments.push(comment)
+            }
+        }
+
+        return res.status(200).json({comments: rootComments})
+    }catch (error){
+        console.error('Get comments error', error)
+
+        return res.status(500).json({error: 'Failed to retrieve comments'})
+    }
+})
+
+app.patch('/api/comments/:commentId', authenticateToken, async(req, res) => {
+    const {commentId} = req.params
+    const userId = req.user.userId
+    const validation = updateCommentSchema.safeParse(req.body)
+
+    if(!validation.success) {
+        return res.status(400).json({error: validation.error.flatten().fieldErrors})
+    }
+
+    try{
+        const [updatedComment] = await db.update(comments).set({content: validation.data.content, updatedAt: new Date()}).where(
+            and(
+                eq(comments.commentId, commentId),
+                eq(comments.userId, userId),
+                isNull(comments.deletedAt)
+            )
+        ).returning()
+
+        if(!updatedComment){
+            return res.status(404).json({error: 'Comment not found'})
+
+        }
+
+        return res.status(200).json({message: 'Comment updated successful', comment: updatedComment})
+    }catch (error) {
+        console.error('Update comment error:', error)
+
+        return res.status(500).json({error: 'Failed to update comment'})
+    }
+})
+
+app.delete('/api/comments/:commentId', authenticateToken, async(req, res) => {
+    const {commentId} = req.params
+    const userId = req.user.userId
+
+    try{
+        const[deletedComment] = await db.update(comments).set({deletedAt: new Date(), updatedAt: new Date()}).where(
+            and(
+                eq(comments.commentId, commentId),
+                eq(comments.userId, userId),
+                isNull(comments.deletedAt)
+            )
+        ).returning({commentId: comments.commentId})
+
+        if(!deletedComment) {
+            return res.status(404).json({error: 'Comment not found or you do not own this comment'})
+        }
+
+        return res.status(200).json({message: 'Comment deleted successfully'})
+    }catch (error) {
+        console.error('Delete comment error', error)
+        return res.status(500).json({error: 'Failed to delete error'})
+    }
+})
 
 
 module.exports = app

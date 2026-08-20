@@ -1,7 +1,8 @@
 <script setup>
-import { ref, onMounted, reactive } from 'vue';
+import { ref, onMounted} from 'vue';
 import api from '../api/api';
 import { useAuthStore } from '../stores/auth';
+import CommentSection from '../components/CommentSection.vue'
 
 const authStore = useAuthStore();
 
@@ -225,7 +226,10 @@ const loadPosts = async (page = currentPage.value) => {
     posts.value = (res.data.posts || []).map(post => ({
       ...post,
       likeCount: post.likeCount || 0,
-      likedByCurrentUser: post.likedByCurrentUser || false
+      likedByCurrentUser: post.likedByCurrentUser || false,
+      commentCount: post.commentCount || 0,
+
+      showComments: false
     }))
 
     currentPage.value = res.data.pagination.page
@@ -557,6 +561,23 @@ onMounted(async () => {
             <span>{{ post.likeCount || 0 }} Likes</span>
 
             </span>
+
+            <button
+            type="button"
+            class="flex items-center gap-1.5 text-sm text-gray-500 hover:text-indigo-600 transition"
+            @click="post.showComments = !post.showComments"
+            >
+            <span class="text-lg">💬</span>
+
+            <span>
+              {{ post.commentCount || 0 }}
+            </span>
+
+            <span>
+              {{ post.showComments ? 'Hide' : 'Comments' }}
+            </span>
+          
+          </button>
           </div>
 
           <div v-if="authStore.isAuthenticated && authStore.user?.userId === post.userId" class=" flex gap-4 mt-0.5">
@@ -567,6 +588,13 @@ onMounted(async () => {
               Delete
             </button>
 
+            <div
+            v-if="authStore.isAuthenticated && authStore.user?.userId === post.userId"
+            class="flex gap-4 mt-0.5"
+            >
+            ...
+            </div>
+
           </div>
         </div>
         <div class="flex items-center gap-2 mt-1 text-sm text-gray-500">
@@ -574,6 +602,13 @@ onMounted(async () => {
           <span>•</span>
           <span>{{ new Date(post.createdAt).toLocaleDateString() }}</span>
         </div>
+
+        <CommentSection 
+        v-if="post.showComments"
+        :post-id="post.postId"
+        :comment-count = "post.commentCount"
+        @comment-count-changed = "post.commentCount = $event"
+        />
       </div>
     </div>
 
