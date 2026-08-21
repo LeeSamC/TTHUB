@@ -19,7 +19,10 @@ const users = pgTable('users', {
     lastName: varchar('last_name', { length: 255 }).notNull(),
     username: varchar('username', { length: 255 }).notNull().unique(),
     password: varchar('password', { length: 255 }).notNull(),
-    createdAt: timestamp('created_at').defaultNow().notNull()
+    bio: varchar('bio', {length: 160}),
+    avatarMediaId: uuid('avatar_media_id'),
+    createdAt: timestamp('created_at', {withTimezone: true}).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', {withTimezone: true}).defaultNow().notNull()
 });
 
 const refreshTokens = pgTable('refresh_tokens', {
