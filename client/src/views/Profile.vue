@@ -18,11 +18,16 @@ const showModal = ref(false)
 
 const password = ref('')
 
+const selectedAvatar = ref(null)
+const avatarPreview = ref(null)
+const isUploadingAvatar = ref(false)
+
 
 const form = reactive({
   firstName: '',
   lastName:'',
-  username:''
+  username:'',
+  bio: ''
 })
 
 const openModal = () => {
@@ -48,11 +53,39 @@ const startEditing = () => {
   form.firstName = user.firstName
   form.lastName = user.lastName
   form.username = user.username
+  form.bio = user.bio 
+
+  selectedAvatar.value = null
+  avatarPreview.value = user.avatarUrl || null
 
   errorMessage.value = ''
   successMessage.value = ''
 
   isEditing.value = true
+}
+
+const handleAvatarChange = (event) => {
+  const file = event.target.files?.[0]
+
+  if(!file){
+    return
+  }
+
+  if(!file.type.startsWith('image/')) {
+    errorMessage.value = 'Avatar must be an image'
+    return
+  }
+
+  if(file.size > 5 * 1024 * 1024){
+    errorMessage.value = 'Avatar must be smaller than 5MB'
+    return
+  }
+
+  selectedAvatar.value = file
+
+  avatarPreview.value = URL.createObjectURL(file)
+
+  errorMessage.value = ''
 }
 
 
@@ -62,17 +95,40 @@ const handleSave = async () => {
   errorMessage.value = ''
 
   try{
+
+    let avatarMediaId =authStore.user?.avatarMediaId || null
+    
+    if(selectedAvatar.value) {
+      isUploadingAvatar.value = true
+
+      const formData = new FormData()
+
+      formData.append('file', selectedAvatar.value)
+
+      const mediaResponse = await api.post('/media', formData, {headers: {'Content-Type': 'multipart/form-data'}})
+
+      avatarMediaId = mediaResponse.data.media.mediaId
+
+      isUploadingAvatar.value = false
+    }
+
+
     const res = await api.patch('/profile/update', {
       firstName: form.firstName,
       lastName: form.lastName,
-      username: form.username
+      username: form.username,
+      bio: form.bio,
+      avatarMediaId
     })
 
     authStore.user = res.data.user
 
+    selectedAvatar.value = null
+
     successMessage.value = 'Profile update successful'
     isEditing.value = false
   }catch (err) {
+    isUploadingAvatar.value = false
     errorMessage.value = err.response?.data?.error || 'Failed to update profile'
   }finally {
     isSaving.value = false
@@ -87,6 +143,10 @@ const cancelEditing = () => {
     form.firstName = user.firstName
     form.lastName = user.lastName
     form.username = user.username
+    form.bio = user.bio 
+
+    avatarPreview.value = user.avatarUrl || null
+    selectedAvatar.value = null
   }
 
   
@@ -148,11 +208,23 @@ const handleDelete = async () => {
 
               <!-- Avatar -->
               <div
-                class="w-14 h-14 rounded-full bg-indigo-100 text-indigo-700
-                       flex items-center justify-center text-xl font-bold
-                       ring-4 ring-indigo-50"
+                class="w-20 h-20 rounded-full overflow-hidden
+                    bg-indigo-100 text-indigo-700
+                      flex items-center justify-center
+                      text-2xl font-bold
+                      ring-4 ring-indigo-50"
               >
+              <img 
+                v-if="authStore.user?.avatarUrl"
+                :src="authStore.user.avatarUrl"
+                :alt="`${authStore.user.firstName} avatar`"
+                class="w-full h-full object-cover"
+              
+              />
+              <span v-else>
                 {{ authStore.user?.firstName?.charAt(0)?.toUpperCase() || 'U' }}
+              </span>
+                
               </div>
 
               <div>
@@ -164,6 +236,27 @@ const handleDelete = async () => {
                 <p class="text-sm text-slate-500">
                   @{{ authStore.user?.username }}
                 </p>
+
+                <div class="flex items-center gap-5 mt-3">
+                  <div>
+                    <span class="font-bold text-slate-900">
+                      {{ authStore.user?.postCount || 0 }}
+                    </span>
+                    <span class="text-sm text-slate-500 ml-1">
+                      Posts
+                    </span>
+                  </div>
+
+                  <div>
+                      <span class="font-bold text-slate-900">
+                        {{ authStore.user?.commentCount || 0 }}
+                      </span>
+                      <span class="text-sm text-slate-500 ml-1">
+                        Comments
+                      </span>
+                  </div>
+
+                </div>
               </div>
 
             </div>
@@ -224,11 +317,56 @@ const handleDelete = async () => {
 
         </div>
 
+
+
         <!-- Profile Information -->
         <form
           @submit.prevent="handleSave"
           class="p-6 space-y-6"
         >
+
+        <div v-if="isEditing" class="mt-5 pt-5 border-t border-slate-100">
+          <label class="block text-sm font-semibold text-slate-800 mb-2">
+            Profile Picture
+          </label>
+
+          <div class="flex-items-center gap-4">
+            <div class="w-20 h-20 rounded-full overflow-hidden
+             bg-indigo-100 flex items-center justify-center
+             text-indigo-700 text-2xl font-bold">
+
+              <img 
+                v-if="avatarPreview"
+                :src="avatarPreview"
+                alt="Avatar preview"
+                class="w-full h-full object-cover"
+              />
+
+              <span v-else>
+                {{ authStore.user?.firstName?.charAt(0)?.toUpperCase() || 'U' }}
+              </span>
+            </div>
+
+          </div>
+          <label class="inline-flex items-center px-4 py-2.5
+                        rounded-lg bg-slate-100
+                        hover:bg-slate-200
+                        text-slate-700
+                        text-sm font-medium mt-3
+                        cursor-pointer transition">
+              Choose Photo
+
+              <input 
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              class="hidden"
+              @change="handleAvatarChange"
+              />
+          </label>
+          <p class="mt-1 text-xs text-slate-500">
+            JPG, PNG, WEBP or GIF. Maximum 5MB.
+          </p>
+        </div>
 
           <!-- First Name -->
           <div>
@@ -324,6 +462,41 @@ const handleDelete = async () => {
               <p class="text-sm font-medium text-slate-900">
                 @{{ authStore.user?.username || 'Not provided' }}
               </p>
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-sm font-semibold text-slate-800 mb-2">
+              Bio
+            </label>
+
+            <textarea 
+              v-if="isEditing"
+              v-model="form.bio"
+              maxlength="160"
+              rows="4"
+              placeholder="Tell people a little about yourself..."
+              class="w-full px-4 py-3 rounded-xl
+                      border border-slate-300
+                      text-slate-900
+                      placeholder-slate-400
+                      outline-none
+                      resize-none
+                      transition
+                      focus:border-indigo-500
+                      focus:ring-4
+                      focus:ring-indigo-50"
+            ></textarea>
+            <div v-if="isEditing" class="mt-1 text-right text-xs text-slate-400">
+              {{ form.bio.length }}/160
+            </div>
+            
+            <div v-else class="px-4 py-3 rounded-xl bg-slate-50
+                          border border-slate-100">
+              <p class="text-sm text-slate-700">
+                {{ authStore.user?.bio || 'No bio yet' }}
+              </p>
+
             </div>
           </div>
 

@@ -720,9 +720,19 @@ onMounted(async () => {
                        bg-indigo-100 text-indigo-700
                        flex items-center justify-center
                        font-semibold text-sm
-                       shrink-0"
+                       shrink-0 overflow-hidden"
               >
-                {{ post.username?.charAt(0)?.toUpperCase() || 'U' }}
+              <img 
+                v-if="post.avatarUrl"
+                :src="post.avatarUrl"
+                :alt="`${post.username || 'User'} avatar`"
+                class="w-full h-full object-cover"
+              >
+              <span v-else>
+                 {{ post.username?.charAt(0)?.toUpperCase() || 'U' }}
+              </span>
+              
+      
               </div>
 
               <div>

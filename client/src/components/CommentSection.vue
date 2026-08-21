@@ -71,6 +71,8 @@ const submitComment = async () => {
 
                 lastName: authStore.user.lastName,
 
+                avatarUrl: authStore.user.avatarUrl,
+
                 replies: []
             }
         )
@@ -118,9 +120,17 @@ onMounted(() => {
                bg-indigo-100 text-indigo-700
                flex items-center justify-center
                text-xs font-bold
-               shrink-0"
+               shrink-0 overflow-hidden"
       >
+      <img 
+        v-if="authStore.user?.avatarUrl"
+        :src="authStore.user.avatarUrl"
+        :alt="`${authStore.user.firstName} avatar`"
+        class="w-full h-full object-cover"  
+      />
+      <span v-else>
         {{ authStore.user?.firstName?.charAt(0)?.toUpperCase() || 'U' }}
+      </span>
       </div>
 
       <div class="flex-1 flex gap-2">

@@ -53,6 +53,7 @@ const submitReply = async () => {
             username: authStore.user.username,
             firstName: authStore.user.firstName,
             lastName: authStore.user.lastName,
+            avatarUrl: authStore.user.avatarUrl,
             replies: []
         })
 
@@ -134,9 +135,19 @@ const deleteComment = async () => {
                bg-indigo-100 text-indigo-700
                flex items-center justify-center
                text-xs font-bold
-               shrink-0"
+               shrink-0 overflow-hidden"
       >
+      <img
+        v-if="comment.avatarUrl" 
+        :src="comment.avatarUrl"
+        :alt="`${comment.username || 'User'} avatar`"
+        class="w-full h-full object-cover"
+      />
+
+      <span v-else>
         {{ comment.firstName?.charAt(0)?.toUpperCase() || 'U' }}
+      </span>
+        
       </div>
 
       <div class="min-w-0 flex-1">
