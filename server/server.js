@@ -13,7 +13,7 @@ const cors = require('cors')
 //Reads cookies sent by the broswer and makes them available through req.cookies
 const cookieParser = require('cookie-parser')
 
-//Used to securely hash passwords and compare plaintext passwords against hased ones
+//Used to securely hash passwords and compare plaintext passwords against hashed ones
 const bcrypt = require('bcryptjs')
 
 //Used to create and verify JWT access/refresh tokens

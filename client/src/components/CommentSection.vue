@@ -103,42 +103,130 @@ onMounted(() => {
 </script>
 
 <template>
-    <div class="mt-4 border-t border-gray-100 pt-4">
-        <form v-if="authStore.isAuthenticated" @submit.prevent="submitComment" class="flex gap-2 mb-4">
-            <input v-model="newComment" type="text" maxlength="2000" placeholder="Write a comment..." class="flex-1 border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"/>
+  <div class="space-y-4">
 
-            <button
-            type="submit"
-            :disabled="submitting || !newComment.trim()"
-            class="px-4 py-2 bg-indigo-600 text-white text-sm rounded-md disabled:opacity-50"
-            >
-            {{ submitting ? 'Posting...' : 'Comment' }}
-            </button>
-            
-        </form>
+    <!-- Comment Composer -->
+    <form
+      v-if="authStore.isAuthenticated"
+      @submit.prevent="submitComment"
+      class="flex items-start gap-3"
+    >
 
-        <p v-else class="text-sm text-gray-500" mb-4> Log in to comment</p>
+      <!-- Avatar -->
+      <div
+        class="w-9 h-9 rounded-full
+               bg-indigo-100 text-indigo-700
+               flex items-center justify-center
+               text-xs font-bold
+               shrink-0"
+      >
+        {{ authStore.user?.firstName?.charAt(0)?.toUpperCase() || 'U' }}
+      </div>
 
-        <div v-if="errorMessage" class="text-sm text-red-500 mb-3">
-            {{ errorMessage }}
-        </div>
+      <div class="flex-1 flex gap-2">
 
-        <div v-if="loading" class="text-sm text-gray-500">
-            Loading comments...
-        </div>
+        <input
+          v-model="newComment"
+          type="text"
+          maxlength="2000"
+          placeholder="Write a comment..."
+          class="flex-1 min-w-0
+                 px-4 py-2.5
+                 bg-white
+                 border border-slate-200
+                 rounded-xl
+                 text-sm
+                 outline-none
+                 transition
+                 focus:border-indigo-500
+                 focus:ring-4
+                 focus:ring-indigo-50"
+        />
 
-        <div v-else-if="comments.length > 0" class="space-y-4">
-            <CommentItem
-            v-for="comment in comments"
-            :key="comment.commentId"
-            :comment = "comment"
-            :post-id = "postId"
-            @comment-count-changed="handleCommentCountChange"/>
+        <button
+          type="submit"
+          :disabled="submitting || !newComment.trim()"
+          class="px-4 py-2.5
+                 bg-indigo-600 hover:bg-indigo-700
+                 disabled:bg-indigo-300
+                 text-white
+                 rounded-xl
+                 text-sm font-medium
+                 transition"
+        >
+          {{ submitting ? '...' : 'Comment' }}
+        </button>
 
-        </div>
+      </div>
 
-        <p v-else class="text-sm text-gray-500">No comments yet</p>
+    </form>
+
+    <p
+      v-else
+      class="text-sm text-slate-500 bg-white
+             border border-slate-200
+             rounded-xl p-4"
+    >
+      Please log in to join the conversation.
+    </p>
+
+    <!-- Error -->
+    <div
+      v-if="errorMessage"
+      class="p-3 rounded-xl
+             bg-rose-50 border border-rose-200
+             text-rose-700 text-sm"
+    >
+      {{ errorMessage }}
     </div>
 
+    <!-- Loading -->
+    <div
+      v-if="loading"
+      class="flex items-center gap-2
+             text-sm text-slate-500 py-3"
+    >
+      <div
+        class="w-4 h-4 rounded-full
+               border-2 border-indigo-200
+               border-t-indigo-600
+               animate-spin"
+      ></div>
 
+      Loading comments...
+    </div>
+
+    <!-- Comments -->
+    <div
+      v-else-if="comments.length > 0"
+      class="space-y-4"
+    >
+
+      <CommentItem
+        v-for="comment in comments"
+        :key="comment.commentId"
+        :comment="comment"
+        :post-id="postId"
+        @comment-count-changed="handleCommentCountChange"
+      />
+
+    </div>
+
+    <!-- Empty -->
+    <div
+      v-else
+      class="text-center py-5"
+    >
+
+      <p class="text-sm text-slate-500">
+        No comments yet.
+      </p>
+
+      <p class="text-xs text-slate-400 mt-1">
+        Start the conversation.
+      </p>
+
+    </div>
+
+  </div>
 </template>

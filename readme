@@ -1,0 +1,120 @@
+TTHUB
+A full stack social platform build with VUE 3, Javascript, Vite, Express, PostgreSQL, Drizzle ORM and tailwindCSS.
+
+TTHUB allows users to create accounts, publish posts, upload images and videos, interact with posts through likes and comments, reply to comments, and manage their profiles.
+
+The project is designed using a monolithic architecture, keeping the application simple to develop and deploy while maintaining a clear separation between frontend, backend, database, authentication, and feature modules.
+
+Features
+
+Authentication
+User registration
+User login
+JWT-based authentication
+HTTP-only authentication cookies
+Access token and refresh token system
+Automatic access-token refreshing
+Logout
+Protected routes
+Password verification
+Account deletion with password confirmation
+User Profiles
+View profile information
+Edit first name
+Edit last name
+Edit username
+Profile state synchronized with the authentication store
+Delete account
+Posts
+Create posts
+Edit posts
+Delete posts
+Paginated post feed
+Public post viewing
+Authenticated post creation
+Post ownership validation
+Empty-content validation
+Support for text-only posts
+Support for media-only posts
+Support for text + media posts
+Media
+Upload images
+Upload videos
+Media previews before uploading
+Media validation
+File type validation
+100 MB upload limit
+Replace media on existing posts
+Local media storage during development
+
+Supported image types:
+
+JPEG
+PNG
+WEBP
+GIF
+
+Supported video types:
+
+MP4
+WEBM
+MOV
+Likes
+Like posts
+Unlike posts
+Like count
+Determine whether the current user has liked a post
+Prevent duplicate like requests
+Comments
+Create comments
+Reply to comments
+Nested replies
+Edit comments
+Delete comments
+Comment counts
+Authentication requirements for commenting
+Comment ownership validation
+Frontend
+Vue 3 Composition API
+Vue Router
+Pinia state management
+Axios API client
+Axios authentication interceptors
+Tailwind CSS
+Responsive UI
+Modal-based post creation
+Media previews
+Loading states
+Error states
+Pagination
+
+Technology Stack
+Frontend
+Technology	Purpose
+Vue 3	Frontend framework
+TypeScript	Type safety
+Vite	Development/build tooling
+Vue Router	Client-side routing
+Pinia	State management
+Axios	HTTP client
+Tailwind CSS	Styling
+Backend
+Technology	Purpose
+Node.js	Runtime
+Express	Backend framework
+TypeScript	Type safety
+Zod	Request validation
+Drizzle ORM	Database ORM
+bcryptjs	Password hashing
+JSON Web Tokens	Authentication
+Multer	File uploads
+Helmet	Security headers
+express-rate-limit	Rate limiting
+cookie-parser	Cookie handling
+CORS	Cross-origin configuration
+
+Database
+
+PostgreSQL
+
+Drizzle ORM is used to interact with PostgreSQL and manage the application's database schema.

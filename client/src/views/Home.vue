@@ -417,229 +417,705 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="bg-white p-6 rounded-lg shadow-sm">
-    <div class="flex justify-between items-center mb-4">
-      <h1 class="text-2xl font-bold" >Welcome to TTHUB</h1>
+  <div class="min-h-[calc(100vh-4rem)] bg-slate-50 py-8 px-4">
 
-      <button 
-      v-if="authStore.isAuthenticated"
-        type="button"
-        @click="openModal"
-        class="bg-indigo-600 text-white px-4 py-2 rounded-md text-sm hover:bg-indigo-700 transition"
-      >+ Create Post</button>
-    </div>
+    <div class="max-w-3xl mx-auto">
 
-    <teleport to='body'>
-      <div v-if="showModal" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4" @click.self="closeModal">
-        <div class="bg-white rounded-xl max-w-md w-full p-6 shadow-xl border border-slate-100 space-y-4">
-          <div class="flex items-center gap-3">
-            <div>
-              <h3  class="text-lg font-bold text-slate-900"> TTHUB</h3>
-            </div>
-          </div>
-          <div v-if="errorMessage" class="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-sm rounded-md">
-            {{ errorMessage }}
-          </div>
+      <!-- Header -->
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
 
-          <div>
-            <label class="block text-xs font-semibold text-slate-700 mb-1">Create a Post</label>
-            <textarea v-model="content" placeholder="Whats Happening" rows="3" class="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500 resize-none"></textarea>
-            <div class="flex items-center justify-between">
-              <label class="cursor-pointer inline-flex items-center gap-2 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md text-sm font-medium transition">
-                Add Media
-                <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime" class="hidden" @change="handleFileSelect">
-              </label>
-              <span v-if="selectedFile" class="text-xs text-gray-500">{{ selectedFile.name }}</span>
-            </div>
-            <div v-if="mediaPreview" class="relative mt-3">
-              <img v-if="mediaPreviewType === 'image'" :src="mediaPreview" alt="Selected image preview" class="w-full max-h-80 object-cover rounded-lg border border-slate-200">
-              <video v-else-if="mediaPreviewType === 'video'" :src="mediaPreview" controls class="w-full max-h-80 object-contain rounded-lg border border-slate-200"> Your browser does not support video playback</video>
-              <button type="button" @click="removeSelectedFile" class="absolute top-2 right-2 bg-black/70 text-white rounded-full w-8 h-8 flex items-center justify-center hover:bg-black transition">x</button>
-            </div>
+        <div>
+          <p class="text-sm font-medium text-indigo-600">
+            Community
+          </p>
 
-          </div>
+          <h1 class="text-3xl font-bold tracking-tight text-slate-900">
+            Welcome to TTHUB
+          </h1>
 
-          <div class="flex justify-end gap-3 pt-2">
-            <button type="button" @click="closeModal" :disabled="isCreatingPost" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium rounded-md transition">
-              Cancel
-            </button>
-
-            <button type="button" @click="handlePostContent" :disabled="(!content.trim() && !selectedFile) || isCreatingPost" class="px-4 py-2 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-sm font-medium rounded-md transition flex items-center gap-2">
-              {{ isUploadingMedia ? 'Uploading...' : isCreatingPost ? 'Posting... ' : 'Post' }}
-            </button>
-          </div>
-
+          <p class="text-sm text-slate-500 mt-1">
+            See what the community is talking about.
+          </p>
         </div>
+
+        <button
+          v-if="authStore.isAuthenticated"
+          type="button"
+          @click="openModal"
+          class="inline-flex items-center justify-center gap-2
+                 px-4 py-2.5
+                 bg-indigo-600 hover:bg-indigo-700
+                 text-white text-sm font-medium
+                 rounded-xl
+                 shadow-sm shadow-indigo-200
+                 transition-all duration-200
+                 hover:shadow-md"
+        >
+          <span class="text-lg leading-none">+</span>
+          Create Post
+        </button>
+
       </div>
-    </teleport>
 
-    <div v-if="loading" class="text-gray-500">Loading post....</div>
-    
+      <!-- Global Error -->
+      <div
+        v-if="errorMessage && !showModal"
+        class="mb-5 p-4 rounded-xl
+               bg-rose-50 border border-rose-200
+               text-rose-700 text-sm"
+      >
+        {{ errorMessage }}
+      </div>
 
-    <div v-else-if="posts.length > 0 ">
-      <div v-for="post in posts" :key = "post.postId" class="border-b border-gray-200 py-4 last:border-0">
+      <!-- Create Post Modal -->
+      <teleport to="body">
 
-        <div v-if="editingPostId === post.postId">
-          <input v-model="editContent" type="text" class="w-full border border-slate-300 rounded-md px-3 py-2 text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500" @keyup.enter="handleEditContent">
-          <div class="mt-3">
-            <label class="cursor-pointer inline-flex items-center gap-2 px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-md text-sm">
-              Change Media
+        <div
+          v-if="showModal"
+          class="fixed inset-0 z-50
+                 flex items-center justify-center
+                 bg-slate-950/60 backdrop-blur-sm p-4"
+          @click.self="closeModal"
+        >
 
-              <input 
-                type="file"
-                accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime"
-                class="hidden"
-                @change="handleEditFileSelect"
+          <div
+            class="w-full max-w-lg bg-white
+                   rounded-2xl shadow-2xl
+                   border border-slate-200
+                   overflow-hidden"
+          >
+
+            <!-- Modal Header -->
+            <div
+              class="px-6 py-5
+                     border-b border-slate-100
+                     flex items-center justify-between"
+            >
+
+              <div>
+                <h2 class="text-lg font-bold text-slate-900">
+                  Create a post
+                </h2>
+
+                <p class="text-xs text-slate-500 mt-1">
+                  Share something with the TTHUB community.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                @click="closeModal"
+                :disabled="isCreatingPost"
+                class="w-9 h-9 rounded-full
+                       flex items-center justify-center
+                       text-slate-400
+                       hover:text-slate-700
+                       hover:bg-slate-100
+                       transition"
               >
-            </label>
-          </div>
+                ✕
+              </button>
 
-          <div v-if="editMediaPreview" class="relative mt-3">
-            <img v-if="editMediaPreviewType === 'image'" :src="editMediaPreview" alt="New Image preview" class="w-full max-h-80 object-cover rounded-lg border border-slate-200">
-            <video v-else-if="editMediaPreviewType === 'video'" :src="editMediaPreview" controls class="w-full max-h-80 object-contain rounded-lg border border-slate-200">Your browser does not support video playback.</video>
-            <button type="button" @click="removeEditSelectedFile" class="absolute top-2 right-2 bg-black/70 text-white rounded-full w-8 h-8 flex items-center justify-center hover:bg-black">
-              x
-            </button>
-          </div>
-          <div class="flex gap-2 mt-2">
-            <button type="button" @click="handleEditContent" :disabled="isEditingPost || !editContent.trim()" class="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white px-3 py-1 rounded-md text-sm">
-              {{ isEditingPost ? 'Saving...' : 'Save' }}
-            </button>
+            </div>
 
-            <button type="button" @click="cancelEdit" :disabled="isEditingPost" class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1 rounded-md text-sm">
-              Cancel
-            </button>
-          </div>
-        </div>
+            <!-- Modal Body -->
+            <div class="p-6 space-y-5">
 
-        <div v-else>
-          <p class="text-gray-800">{{ post.content }}</p>
+              <div
+                v-if="errorMessage"
+                class="p-3 rounded-xl
+                       bg-rose-50 border border-rose-200
+                       text-rose-700 text-sm"
+              >
+                {{ errorMessage }}
+              </div>
 
-          <div v-if="post.media && post.media.length > 0" class="mt-3 space-y-3">
-            <div v-for="item in post.media" :key="item.mediaId">
-              <img 
-              v-if="item.type === 'image'" 
-              :src="getMediaUrl(item)"
-              :alt="`Image uploaded by ${post.username || 'user'}`" 
-              class="w-full max-h-125 object-cover rounded-lg border border-slate-200"/>
+              <textarea
+                v-model="content"
+                placeholder="What's happening?"
+                rows="5"
+                class="w-full resize-none
+                       px-4 py-3
+                       border border-slate-300
+                       rounded-xl
+                       text-sm text-slate-900
+                       placeholder-slate-400
+                       outline-none
+                       transition
+                       focus:border-indigo-500
+                       focus:ring-4
+                       focus:ring-indigo-50"
+              ></textarea>
 
-              <video 
-              v-else-if="item.type === 'video'"
-              :src="getMediaUrl(item)"
-              controls
-              preload="metadata"
-              class="w-full max-h-125 rounded-lg border border-slate-200"
-              >Your browser does not support video playback.</video>
+              <!-- Media Upload -->
+              <div class="flex items-center justify-between gap-3">
+
+                <label
+                  class="cursor-pointer
+                         inline-flex items-center gap-2
+                         px-4 py-2.5
+                         rounded-lg
+                         bg-indigo-50
+                         hover:bg-indigo-100
+                         text-indigo-700
+                         text-sm font-medium
+                         transition"
+                >
+                  <span>＋</span>
+                  Add Media
+
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime"
+                    class="hidden"
+                    @change="handleFileSelect"
+                  />
+                </label>
+
+                <span
+                  v-if="selectedFile"
+                  class="text-xs text-slate-500 truncate max-w-50"
+                >
+                  {{ selectedFile.name }}
+                </span>
+
+              </div>
+
+              <!-- Preview -->
+              <div
+                v-if="mediaPreview"
+                class="relative overflow-hidden rounded-xl"
+              >
+
+                <img
+                  v-if="mediaPreviewType === 'image'"
+                  :src="mediaPreview"
+                  alt="Selected image preview"
+                  class="w-full max-h-80 object-cover"
+                />
+
+                <video
+                  v-else-if="mediaPreviewType === 'video'"
+                  :src="mediaPreview"
+                  controls
+                  class="w-full max-h-80 object-contain bg-slate-950"
+                ></video>
+
+                <button
+                  type="button"
+                  @click="removeSelectedFile"
+                  class="absolute top-3 right-3
+                         w-8 h-8 rounded-full
+                         bg-slate-950/70
+                         hover:bg-slate-950
+                         text-white
+                         flex items-center justify-center
+                         transition"
+                >
+                  ✕
+                </button>
+
+              </div>
+
+            </div>
+
+            <!-- Modal Footer -->
+            <div
+              class="px-6 py-4
+                     bg-slate-50
+                     flex justify-end gap-3"
+            >
+
+              <button
+                type="button"
+                @click="closeModal"
+                :disabled="isCreatingPost"
+                class="px-4 py-2.5
+                       bg-white border border-slate-200
+                       hover:bg-slate-100
+                       text-slate-700
+                       text-sm font-medium
+                       rounded-lg
+                       transition"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                @click="handlePostContent"
+                :disabled="(!content.trim() && !selectedFile) || isCreatingPost"
+                class="px-5 py-2.5
+                       bg-indigo-600 hover:bg-indigo-700
+                       disabled:bg-indigo-300
+                       text-white
+                       text-sm font-medium
+                       rounded-lg
+                       transition"
+              >
+                {{
+                  isUploadingMedia
+                    ? 'Uploading...'
+                    : isCreatingPost
+                      ? 'Posting...'
+                      : 'Publish Post'
+                }}
+              </button>
 
             </div>
 
           </div>
-          <div class="flex items-center gap-4 mt-3">
-            <button
-            v-if="authStore.isAuthenticated"
-            type="button"
-            @click="handleLike(post)"
-            :disabled="likedPostId === post.postId"
-            class="flex items-center gap-1.5 text-sm transition"
-            :class="post.likedByCurrentUser ? 'text-red-600' : 'text-gray-500 hover:text-red-600'"
+
+        </div>
+
+      </teleport>
+
+      <!-- Loading -->
+      <div
+        v-if="loading"
+        class="bg-white rounded-2xl
+               border border-slate-200
+               p-10 text-center"
+      >
+        <div
+          class="w-8 h-8 mx-auto mb-3
+                 border-2 border-indigo-200
+                 border-t-indigo-600
+                 rounded-full animate-spin"
+        ></div>
+
+        <p class="text-sm text-slate-500">
+          Loading posts...
+        </p>
+      </div>
+
+      <!-- Posts -->
+      <div
+        v-else-if="posts.length > 0"
+        class="space-y-4"
+      >
+
+        <article
+          v-for="post in posts"
+          :key="post.postId"
+          class="bg-white
+                 rounded-2xl
+                 border border-slate-200
+                 shadow-sm
+                 overflow-hidden
+                 transition-shadow
+                 hover:shadow-md"
+        >
+
+          <!-- Post Header -->
+          <div
+            class="px-5 pt-5
+                   flex items-start justify-between"
+          >
+
+            <div class="flex items-center gap-3">
+
+              <div
+                class="w-10 h-10 rounded-full
+                       bg-indigo-100 text-indigo-700
+                       flex items-center justify-center
+                       font-semibold text-sm
+                       shrink-0"
+              >
+                {{ post.username?.charAt(0)?.toUpperCase() || 'U' }}
+              </div>
+
+              <div>
+
+                <p class="text-sm font-semibold text-slate-900">
+                  {{ post.username || 'Unknown' }}
+                </p>
+
+                <p class="text-xs text-slate-400">
+                  {{ new Date(post.createdAt).toLocaleDateString() }}
+                </p>
+
+              </div>
+
+            </div>
+
+            <!-- Owner Controls -->
+            <div
+              v-if="authStore.isAuthenticated &&
+                authStore.user?.userId === post.userId &&
+                editingPostId !== post.postId"
+              class="flex items-center gap-1"
             >
-            <span class="text-lg">
-              {{ post.likedByCurrentUser ? '♥' : '♡' }}
-            </span>
 
-            <span>
-              {{ post.likeCount || 0 }} Likes
-            </span>
+              <button
+                type="button"
+                @click="startEditing(post)"
+                class="px-2.5 py-1.5
+                       rounded-md
+                       text-xs font-medium
+                       text-indigo-600
+                       hover:bg-indigo-50
+                       transition"
+              >
+                Edit
+              </button>
 
-            </button>
+              <button
+                type="button"
+                @click="handleDeletePost(post)"
+                class="px-2.5 py-1.5
+                       rounded-md
+                       text-xs font-medium
+                       text-slate-500
+                       hover:bg-rose-50
+                       hover:text-rose-600
+                       transition"
+              >
+                Delete
+              </button>
 
-            <span
-            v-else
-            class="flex items-center gap-1.5 text-sm text-gray-500"
-            >
-            <span class="text-lg">♡</span>
-            <span>{{ post.likeCount || 0 }} Likes</span>
+            </div>
 
-            </span>
-
-            <button
-            type="button"
-            class="flex items-center gap-1.5 text-sm text-gray-500 hover:text-indigo-600 transition"
-            @click="post.showComments = !post.showComments"
-            >
-            <span class="text-lg">💬</span>
-
-            <span>
-              {{ post.commentCount || 0 }}
-            </span>
-
-            <span>
-              {{ post.showComments ? 'Hide' : 'Comments' }}
-            </span>
-          
-          </button>
           </div>
 
-          <div v-if="authStore.isAuthenticated && authStore.user?.userId === post.userId" class=" flex gap-4 mt-0.5">
-            <button type="button" @click="startEditing(post)" class="text-indigo-600 hover:text-indigo-800 text-xs font-medium">
-              Edit
-            </button>
-            <button type="button" @click="handleDeletePost(post)" class="text-indigo-600 hover:text-red-800 text-xs font-medium" >
-              Delete
-            </button>
+          <!-- Editing -->
+          <div
+            v-if="editingPostId === post.postId"
+            class="px-5 py-5"
+          >
+
+            <textarea
+              v-model="editContent"
+              rows="4"
+              class="w-full resize-none
+                     border border-slate-300
+                     rounded-xl px-4 py-3
+                     text-sm
+                     outline-none
+                     focus:border-indigo-500
+                     focus:ring-4
+                     focus:ring-indigo-50"
+            ></textarea>
+
+            <div class="mt-3">
+
+              <label
+                class="cursor-pointer inline-flex
+                       items-center gap-2
+                       px-3 py-2
+                       bg-indigo-50
+                       hover:bg-indigo-100
+                       text-indigo-700
+                       rounded-lg
+                       text-xs font-medium
+                       transition"
+              >
+                Change Media
+
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime"
+                  class="hidden"
+                  @change="handleEditFileSelect"
+                />
+              </label>
+
+            </div>
 
             <div
-            v-if="authStore.isAuthenticated && authStore.user?.userId === post.userId"
-            class="flex gap-4 mt-0.5"
+              v-if="editMediaPreview"
+              class="relative mt-3 overflow-hidden rounded-xl"
             >
-            ...
+
+              <img
+                v-if="editMediaPreviewType === 'image'"
+                :src="editMediaPreview"
+                class="w-full max-h-80 object-cover"
+                alt="New image preview"
+              />
+
+              <video
+                v-else-if="editMediaPreviewType === 'video'"
+                :src="editMediaPreview"
+                controls
+                class="w-full max-h-80 object-contain bg-slate-950"
+              ></video>
+
+              <button
+                type="button"
+                @click="removeEditSelectedFile"
+                class="absolute top-3 right-3
+                       w-8 h-8 rounded-full
+                       bg-slate-950/70
+                       text-white
+                       flex items-center justify-center"
+              >
+                ✕
+              </button>
+
+            </div>
+
+            <div class="flex gap-2 mt-4">
+
+              <button
+                type="button"
+                @click="handleEditContent"
+                :disabled="isEditingPost || !editContent.trim()"
+                class="px-4 py-2
+                       bg-indigo-600 hover:bg-indigo-700
+                       disabled:bg-indigo-300
+                       text-white
+                       rounded-lg
+                       text-sm font-medium
+                       transition"
+              >
+                {{ isEditingPost ? 'Saving...' : 'Save Changes' }}
+              </button>
+
+              <button
+                type="button"
+                @click="cancelEdit"
+                :disabled="isEditingPost"
+                class="px-4 py-2
+                       bg-slate-100 hover:bg-slate-200
+                       text-slate-700
+                       rounded-lg
+                       text-sm font-medium
+                       transition"
+              >
+                Cancel
+              </button>
+
             </div>
 
           </div>
-        </div>
-        <div class="flex items-center gap-2 mt-1 text-sm text-gray-500">
-          <span>By : {{ post.username || 'Unknown' }}</span>
-          <span>•</span>
-          <span>{{ new Date(post.createdAt).toLocaleDateString() }}</span>
-        </div>
 
-        <CommentSection 
-        v-if="post.showComments"
-        :post-id="post.postId"
-        :comment-count = "post.commentCount"
-        @comment-count-changed = "post.commentCount = $event"
-        />
+          <!-- Post Content -->
+          <div v-else>
+
+            <div class="px-5 pt-4">
+
+              <p
+                class="text-[15px] leading-7
+                       text-slate-700
+                       whitespace-pre-wrap"
+              >
+                {{ post.content }}
+              </p>
+
+            </div>
+
+            <!-- Media -->
+            <div
+              v-if="post.media && post.media.length > 0"
+              class="mt-4 space-y-2"
+            >
+
+              <div
+                v-for="item in post.media"
+                :key="item.mediaId"
+              >
+
+                <img
+                  v-if="item.type === 'image'"
+                  :src="getMediaUrl(item)"
+                  :alt="`Image uploaded by ${post.username || 'user'}`"
+                  class="w-full max-h-137.5 object-cover"
+                />
+
+                <video
+                  v-else-if="item.type === 'video'"
+                  :src="getMediaUrl(item)"
+                  controls
+                  preload="metadata"
+                  class="w-full max-h-137.5 bg-slate-950"
+                ></video>
+
+              </div>
+
+            </div>
+
+            <!-- Actions -->
+            <div class="px-5 py-4">
+
+              <div class="flex items-center gap-2">
+
+                <!-- Like -->
+                <button
+                  type="button"
+                  @click="handleLike(post)"
+                  :disabled="!authStore.isAuthenticated || likedPostId === post.postId"
+                  class="group inline-flex items-center gap-2
+                         px-3 py-2 rounded-lg
+                         text-sm font-medium
+                         transition"
+                  :class="post.likedByCurrentUser
+                    ? 'text-rose-600 bg-rose-50'
+                    : 'text-slate-500 hover:text-rose-600 hover:bg-rose-50'"
+                >
+
+                  <span
+                    class="text-lg leading-none transition-transform
+                           group-hover:scale-110"
+                  >
+                    {{ post.likedByCurrentUser ? '♥' : '♡' }}
+                  </span>
+
+                  <span>
+                    {{ post.likeCount || 0 }}
+                  </span>
+
+                </button>
+
+                <!-- Comments -->
+                <button
+                  type="button"
+                  @click="post.showComments = !post.showComments"
+                  class="inline-flex items-center gap-2
+                         px-3 py-2 rounded-lg
+                         text-sm font-medium
+                         text-slate-500
+                         hover:text-indigo-600
+                         hover:bg-indigo-50
+                         transition"
+                >
+
+                  <span class="text-base">
+                    💬
+                  </span>
+
+                  <span>
+                    {{ post.commentCount || 0 }}
+                  </span>
+
+                  <span class="hidden sm:inline">
+                    {{ post.showComments ? 'Hide' : 'Comments' }}
+                  </span>
+
+                </button>
+
+              </div>
+
+            </div>
+
+          </div>
+
+          <!-- Comments -->
+          <div
+            v-if="post.showComments"
+            class="border-t border-slate-100
+                   bg-slate-50/60
+                   px-5 py-4"
+          >
+
+            <CommentSection
+              :post-id="post.postId"
+              :comment-count="post.commentCount"
+              @comment-count-changed="post.commentCount = $event"
+            />
+
+          </div>
+
+        </article>
+
       </div>
-    </div>
 
-    <div v-if="posts.length > 0" class="flex items-center justify-between mt-6">
-      <button
-      type="button"
-      @click="previousPage"
-      :disabled="!hasPreviousPage || loading"
-      class="px-4 py-2 bg-slate-100 rounded-md disabled:opacity-50"
+      <!-- Empty State -->
+      <div
+        v-else
+        class="bg-white rounded-2xl
+               border border-slate-200
+               p-12 text-center"
       >
-        Previous
-      </button>
 
-      <span class="text-sm text-gray-500">
-        Page {{ currentPage }} of {{ totalPages }}
-      </span>
+        <div
+          class="w-14 h-14 mx-auto mb-4
+                 rounded-full
+                 bg-indigo-50
+                 text-indigo-600
+                 flex items-center justify-center
+                 text-2xl"
+        >
+          ✦
+        </div>
 
-      <button
-      type="button"
-      @click="nextPage"
-      :disabled="!hasNextPage || loading"
-      class="px-4 py-2 bg-indigo-600 text-white rounded-md disabled:opacity-50"
+        <h2 class="text-lg font-semibold text-slate-900">
+          No posts yet
+        </h2>
+
+        <p class="text-sm text-slate-500 mt-1">
+          Be the first person to share something with the community.
+        </p>
+
+        <button
+          v-if="authStore.isAuthenticated"
+          type="button"
+          @click="openModal"
+          class="mt-5 px-4 py-2.5
+                 bg-indigo-600 hover:bg-indigo-700
+                 text-white text-sm font-medium
+                 rounded-lg transition"
+        >
+          Create the first post
+        </button>
+
+      </div>
+
+      <!-- Pagination -->
+      <div
+        v-if="posts.length > 0"
+        class="flex items-center justify-between
+               mt-6 px-1"
       >
-        Next
-      </button>
+
+        <button
+          type="button"
+          @click="previousPage"
+          :disabled="!hasPreviousPage || loading"
+          class="px-4 py-2
+                 rounded-lg
+                 bg-white border border-slate-200
+                 hover:bg-slate-50
+                 text-slate-700
+                 text-sm font-medium
+                 disabled:opacity-40
+                 disabled:cursor-not-allowed
+                 transition"
+        >
+          ← Previous
+        </button>
+
+        <span
+          class="text-sm font-medium text-slate-500"
+        >
+          Page
+          <span class="text-slate-900">
+            {{ currentPage }}
+          </span>
+          of
+          <span class="text-slate-900">
+            {{ totalPages }}
+          </span>
+        </span>
+
+        <button
+          type="button"
+          @click="nextPage"
+          :disabled="!hasNextPage || loading"
+          class="px-4 py-2
+                 rounded-lg
+                 bg-indigo-600 hover:bg-indigo-700
+                 text-white
+                 text-sm font-medium
+                 disabled:bg-indigo-300
+                 disabled:cursor-not-allowed
+                 transition"
+        >
+          Next →
+        </button>
+
+      </div>
 
     </div>
-    <p v-else-if="errorMessage" class="text-red-500">{{ errorMessage }}</p>
-    <p v-else class="text-grey-500">No posts yet</p>
-    
-    
-
   </div>
 </template>
