@@ -32,9 +32,7 @@ const crypto = require('crypto')
 const {eq, and, isNull, desc, inArray, sql, asc} = require('drizzle-orm')
 const {db} = require('./db')
 const {users, refreshTokens, posts, media, postMedia, likes, comments} = require('./schema');
-const { 
-  number
-} = require('drizzle-orm/pg-core');
+const { number} = require('drizzle-orm/pg-core');
 const { resourceLimits } = require('worker_threads')
 
 const app = express();
@@ -159,6 +157,8 @@ const userUpdateSchema = z.object({
     firstName: z.string().min(1, "First name is required"),
     lastName: z.string().min(1, "Last name is required"),
     username: z.string().min(3, "Username must be at least 3 charachers"),
+    bio: z.string().max(160, "Bio must be 160 characters or less"),
+    avatarMediaId: z.string().uuid().nullable().optional()
 })
 
 
@@ -485,15 +485,51 @@ app.get('/api/profile', authenticateToken, async (req, res) => {
             firstName: users.firstName,
             lastName: users.lastName,
             username: users.username,
-            }).from(users).where(eq(users.userId, currentUserId));
+            bio: users.bio,
+            avatarStorageKey: media.storageKey,
+            postCount: sql`
+                    (
+                        SELECT COUNT(*)::int
+                        FROM ${posts}
+                        WHERE ${posts.userId} = ${currentUserId}
+                    )
+                `.as('postCount'),
+            commentCount: sql`
+                    (
+                        SELECT COUNT(*)::int
+                        FROM ${comments}
+                        WHERE ${comments.userId} = ${currentUserId}
+                        AND ${comments.deletedAt} IS NULL
+                    )
+                `.as('commentCount')
+            
+            }).from(users).leftJoin(media, eq(users.avatarMediaId, media.mediaId)).where(eq(users.userId, currentUserId));
         
         if (result.length === 0 ) {
             return res.status(404).json({error: 'User not found'});
         }
 
-        res.status(200).json({user:result[0]})
+        const user = result[0]
+
+        const profile = {
+            userId: user.userId,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            username: user.username,
+            bio: user.bio || '',
+
+            avatarUrl: user.avatarStorageKey
+                ? `${req.protocol}://${req.get('host')}/uploads/${user.avatarStorageKey}`
+                : null,
+            
+            postCount: user.postCount,
+            commentCount: user.commentCount
+        }
+
+        res.status(200).json({user: profile})
 
     }catch (error) {
+        console.error('Get profile error', error)
         res.status(500).json({error: 'Failed to retrieve profile'})
     }
 })
@@ -506,18 +542,87 @@ app.patch('/api/profile/update', authenticateToken, async (req, res) => {
         return res.status(400).json({error: 'Invalid input data', details: validation.error.flatten().fieldErrors})
     }
 
-    if(Object.keys(validation.data).length === 0) {
+    const updateData = validation.data
+
+    if(Object.keys(updateData).length === 0) {
         return res.status(400).json({error: 'No field provided to update'})
     }
 
     try{
-        const updatedUser = await db.update(users).set(validation.data).where(eq(users.userId, currentUserId)).returning({firstName: users.firstName, lastName: users.lastName, username: users.username})
 
-        if(updatedUser.length === 0) {
-            return res.status(404).json({error: 'User not found'})
+        if(updateData.avatarMediaId) {
+            const avatar = await db.select({
+                mediaId: media.mediaId,
+                type: media.type
+            }).from(media)
+            .where(
+                and(
+                    eq(media.mediaId, updateData.avatarMediaId),
+                    eq(media.uploadedBy, currentUserId)
+                )
+            )
+            
+            if(avatar.length === 0) {
+                return res.status(403).json({error: 'You do not own this media'})
+            }
+
+            if(avatar[0].type !== 'image'){
+                return res.status(400).json({error: 'Avatar must be an image'})
+            }
         }
 
-        res.status(200).json({message: 'Successfully Updated ', user: updatedUser[0]})
+
+        await db.update(users).set(updateData).where(eq(users.userId, currentUserId))
+
+        const result = await db.select({
+            userId: users.userId,
+            firstName: users.firstName,
+            lastName: users.lastName,
+            username: users.username,
+            bio: users.bio,
+            avatarStorageKey: media.storageKey,
+
+            postCount: sql`
+                (
+                    SELECT COUNT(*)::int
+                    FROM ${posts}
+                    WHERE ${posts.userId} = ${currentUserId}
+                )
+            `.as('postCount'),
+
+            commentCount: sql`
+                (
+                    SELECT COUNT(*)::int
+                    FROM ${comments}
+                    WHERE ${comments.userId} = ${currentUserId}
+                    AND ${comments.deletedAt} IS NULL
+                )
+            `.as('commentCount')
+        }).from(users)
+        .leftJoin(
+            media,
+            eq(users.avatarMediaId, media.mediaId)
+        )
+        .where(eq(users.userId, currentUserId))
+
+        const user = result[0]
+
+        const profile = {
+            userId: user.userId,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            username: user.username,
+            bio: user.bio || '',
+
+            avatarUrl: user.avatarStorageKey
+                ? `${req.protocol}://${req.get('host')}/uploads/${user.avatarStorageKey}`
+                : null,
+
+            postCount: user.postCount,
+            commentCount: user.commentCount
+        } 
+
+        res.status(200).json({message: 'Successfully Updated ', user: profile})
     }catch (error) {
         console.log('Update Error', error)
         res.status(500).json({error: 'Server Error'})
@@ -731,6 +836,8 @@ app.get('/api/posts', optionalAuthenticateToken, async (req, res) => {
                 firstName: users.firstName,
                 lastName: users.lastName,
 
+                avatarStorageKey: media.storageKey,
+
                 likeCount: sql`
                     (
                         SELECT COUNT(*)::int
@@ -764,6 +871,10 @@ app.get('/api/posts', optionalAuthenticateToken, async (req, res) => {
             .leftJoin(
                 users,
                 eq(posts.userId, users.userId)
+            )
+            .leftJoin(
+                media,
+                eq(users.avatarMediaId, media.mediaId)
             )
             .where(
                 isNull(posts.deletedAt)
@@ -846,6 +957,9 @@ app.get('/api/posts', optionalAuthenticateToken, async (req, res) => {
 
         const postsWithMedia = result.map(post => ({
             ...post,
+            avatarUrl: post.avatarStorageKey
+                ? `${req.protocol}://${req.get('host')}/uploads/${post.avatarStorageKey}`
+                : null,
             media: mediaByPostId.get(post.postId) || []
         }))
 
@@ -1445,11 +1559,16 @@ app.get('/api/posts/:postId/comments', optionalAuthenticateToken, async(req, res
             userId: users.userId,
             username: users.username,
             firstName: users.firstName,
-            lastName: users.lastName
+            lastName: users.lastName,
+            avatarStorageKey: media.storageKey
         }).from(comments)
         .innerJoin(
             users,
             eq(comments.userId, users.userId)
+        )
+        .leftJoin(
+            media,
+            eq(users.avatarMediaId, media.mediaId)
         )
         .where(
             and(
@@ -1465,6 +1584,9 @@ app.get('/api/posts/:postId/comments', optionalAuthenticateToken, async(req, res
                 comment.commentId,
                 {
                     ...comment,
+                    avatarUrl: comment.avatarStorageKey
+                        ? `${req.protocol}://${req.get('host')}/uploads/${comment.avatarStorageKey}`
+                        : null,
                     replies: []
                 }
             )
