@@ -664,6 +664,76 @@ app.delete('/api/profile/delete', authenticateToken, async (req,res) => {
     }
 })
 
+app.get('/api/users/:username', async (req, res) => {
+    const {username} = req.params
+
+    try{
+        const result = await db.select({
+            userId: users.userId,
+            firstName: users.firstName,
+            lastName: users.lastName,
+            username: users.username,
+            bio: users.bio,
+            avatarStorageKey: media.storageKey,
+
+            postCount: sql`
+                (
+                    SELECT COUNT(*)::int
+                    FROM${posts}
+                    WHERE${posts.userId}=${users.userId}
+                    AND${posts.deletedAt} IS NULL
+                )
+            `.as('postCount'),
+
+            commentCount: sql`
+                (
+                    SELECT COUNT(*)::int
+                    FROM${comments}
+                    WHERE${comments.userId}=${users.userId}
+                    AND${comments.deletedAt} IS NULL
+                )
+            `.as('commentCount')
+        })
+        .from(users)
+        .leftJoin(
+            media,
+            eq(users.avatarMediaId, media.mediaId)
+        )
+        .where(
+            eq(users.username, username)
+        )
+        .limit(1)
+
+        if(result.length === 0){
+            return res.status(404).json({error:'User not found'})
+        }
+
+        const user = result[0]
+
+        const profile = {
+            userId: user.userId,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            username: user.username,
+            bio: user.bio || '',
+
+            avatarUrl: user.avatarStorageKey
+                ? `${req.protocol}://${req.get('host')}/uploads/${user.avatarStorageKey}`
+                : null,
+            
+            postCount: user.postCount,
+            commentCount: user.commentCount
+        }
+
+        return res.status(200).json({user: profile})
+
+    }catch (error) {
+        console.error('Get public user error', error)
+
+        return res.status(500).json({error:'Failed to retrieve user'})
+    }
+})
+
 
 
 async function getPostMedia(postId, req) {
