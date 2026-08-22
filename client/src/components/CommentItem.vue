@@ -2,6 +2,7 @@
 import {ref} from 'vue'
 import api from '../api/api'
 import {useAuthStore} from '../stores/auth'
+import { RouterLink } from 'vue-router'
 
 const props = defineProps({
     comment: {
@@ -130,7 +131,8 @@ const deleteComment = async () => {
     <div class="flex items-start gap-3">
 
       <!-- Avatar -->
-      <div
+      <RouterLink
+        :to="`/profile/${comment.username}`"
         class="w-9 h-9 rounded-full
                bg-indigo-100 text-indigo-700
                flex items-center justify-center
@@ -148,7 +150,7 @@ const deleteComment = async () => {
         {{ comment.firstName?.charAt(0)?.toUpperCase() || 'U' }}
       </span>
         
-      </div>
+    </RouterLink>
 
       <div class="min-w-0 flex-1">
 

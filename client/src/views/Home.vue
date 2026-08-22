@@ -1,5 +1,6 @@
 <script setup>
 import { ref, onMounted} from 'vue';
+import { RouterLink } from 'vue-router';
 import api from '../api/api';
 import { useAuthStore } from '../stores/auth';
 import CommentSection from '../components/CommentSection.vue'
@@ -713,7 +714,7 @@ onMounted(async () => {
                    flex items-start justify-between"
           >
 
-            <div class="flex items-center gap-3">
+            <RouterLink :to="`/profile/${post.username}`" class="flex items-center gap-3">
 
               <div
                 class="w-10 h-10 rounded-full
@@ -737,9 +738,9 @@ onMounted(async () => {
 
               <div>
 
-                <p class="text-sm font-semibold text-slate-900">
+                <RouterLink :to="`/profile/${post.username}`" class="text-sm font-semibold text-slate-900 hover:text-indigo-600">
                   {{ post.username || 'Unknown' }}
-                </p>
+                </RouterLink>
 
                 <p class="text-xs text-slate-400">
                   {{ new Date(post.createdAt).toLocaleDateString() }}
@@ -747,7 +748,7 @@ onMounted(async () => {
 
               </div>
 
-            </div>
+            </RouterLink>
 
             <!-- Owner Controls -->
             <div
