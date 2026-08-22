@@ -34,6 +34,12 @@ const routes = [
         component: Profile,
         meta: {layout: 'default', requiresAuth: true}
     },
+
+    {
+        path: '/profile/:username',
+        name: 'public-profile',
+        component: () => import('../views/PublicProfile.vue')
+    }
 ];
 
 //createWebHistoy create clean urls remove /#/
