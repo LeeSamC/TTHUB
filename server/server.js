@@ -31,7 +31,7 @@ const crypto = require('crypto')
 
 const {eq, and, isNull, desc, inArray, sql, asc} = require('drizzle-orm')
 const {db} = require('./db')
-const {users, refreshTokens, posts, media, postMedia, likes, comments} = require('./schema');
+const {users, refreshTokens, posts, media, postMedia, likes, comments, mediaTypeEnum} = require('./schema');
 const { number} = require('drizzle-orm/pg-core');
 const { resourceLimits } = require('worker_threads')
 
@@ -722,7 +722,10 @@ app.get('/api/users/:username', async (req, res) => {
                 : null,
             
             postCount: user.postCount,
-            commentCount: user.commentCount
+            commentCount: user.commentCount,
+            isCurrentUser: req.user
+                ? req.user.userId === user.userId
+                : false
         }
 
         return res.status(200).json({user: profile})
@@ -731,6 +734,153 @@ app.get('/api/users/:username', async (req, res) => {
         console.error('Get public user error', error)
 
         return res.status(500).json({error:'Failed to retrieve user'})
+    }
+})
+
+app.get('/api/users/:username/posts', optionalAuthenticateToken, async (req, res) => {
+    const {username} = req.params
+
+    const page = Math.max(parseInt(req.query.page) || 1, 1)
+    const pageSize = Math.min(Math.max(parseInt(req.query.pageSize) || 10, 1), 50)
+
+    const offset = (page - 1) * pageSize
+
+    try{
+        const userResult = await db.select({
+            userId: users.userId,
+            username: users.username
+
+        }).from(users).where(eq(users.username, username)).limit(1)
+
+        const profileUser = userResult[0]
+
+        const countResult = await db.select({
+            count: sql`COUNT(*)`
+        }).from(posts).where(eq(posts.userId, profileUser.userId))
+
+        const totalPosts = Number(countResult[0].count)
+        const totalPages = Math.ceil(totalPosts / pageSize)
+
+        const postResults = await db.select({
+            postId: posts.postId,
+            userId: posts.userId,
+            content: posts.content,
+            createdAt: posts.createdAt,
+            updatedAt: posts.updatedAt,
+
+            firstName: users.firstName,
+            lastName: users.lastName,
+            username: users.username,
+
+            likeCount: sql`
+                (
+                    SELECT COUNT(*)::int
+                    FROM ${likes}
+                    WHERE ${likes.postId} = ${posts.postId}
+                )
+            `,
+
+            commentCount: sql`
+                (
+                    SELECT COUNT(*)::int
+                    FROM ${comments}
+                    WHERE ${comments.postId} = ${posts.postId}
+                )            
+            `
+        })
+        .from(posts)
+        .innerJoin(
+            users,
+            eq(posts.userId, users.userId)
+        )
+        .where(eq(posts.userId, profileUser.userId))
+        .orderBy(desc(posts.createdAt))
+        .limit(pageSize)
+        .offset(offset)
+
+
+        const formattedPosts = await Promise.all(
+            postResults.map(async (post) => {
+                const mediaResults = await db.select({
+                    mediaId: media.mediaId,
+                    storageKey: media.storageKey,
+                    mediaType: media.mimeType
+                })
+                .from(postMedia)
+                .innerJoin(
+                    media,
+                    eq(postMedia.mediaId, media.mediaId)
+                )
+                .where(eq(postMedia.postId, post.postId))
+
+                const postMediaItems = mediaResults.map(item => ({
+                    mediaId: item.mediaId,
+                    type: item.mediaType.startsWith('image/')
+                        ? 'image'
+                        : item.mediaType.startsWith('video/')
+                            ? 'video'
+                            : 'unknown',
+                    url: `${req.protocol}://${req.get('host')}/uploads/${item.storageKey}`
+                }))
+
+                let isLiked = false
+
+                if(req.user) {
+                    const likeResult = await db.select({
+                        likedId: likes.likeId
+                    }).from(likes)
+                    .where(
+                        and(
+                            eq(likes.postId, post.postId),
+                            eq(likes.userId, req.user.userId)
+                        )
+                    ).limit(1)
+
+                    isLiked = likeResult.length > 0
+                }
+
+                return {
+                    postId: post.postId,
+                    userId: post.userId,
+
+                    content: post.content,
+
+                    createdAt: post.createdAt,
+                    updatedAt: post.updatedAt,
+
+                    author: {
+                        firstName: post.firstName,
+                        lastName: post.lastName,
+                        username: post.username
+                    },
+
+                    media: postMediaItems,
+
+                    likeCount: Number(post.likeCount),
+                    commentCount: Number(post.commentCount),
+
+                    isLiked
+                }
+            })
+        )
+
+        res.json({
+            posts: formattedPosts,
+
+            pagination: {
+                currentPage: page,
+                pageSize,
+                totalPosts,
+                totalPages,
+
+                hasNextPage: page < totalPages,
+                hasPreviousPage: page > 1
+            }
+        })
+    }catch (error) {
+        console.error('Get public user posts error:', error)
+
+        return res.status(500).json({error: 'Failed to get user posts'})
     }
 })
 
