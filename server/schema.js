@@ -110,5 +110,16 @@ const comments = pgTable('comments', {
     deletedAt: timestamp('deleted_at')
 })
 
+const follows = pgTable('follows', {
+    followerId: uuid('follower_id').notNull().references(() => users.userId, {onDelete: 'cascade'}),
+    followingId: uuid('following_id').notNull().references(() => users.userId, {onDelete: 'cascade'}),
+    createdAt: timestamp('created_at').defaultNow().notNull()
+}, (table) => ({
+    pk: primaryKey({
+        columns: [table.followerId, table.followingId]
+    })
+})
+)
 
-module.exports = {users, refreshTokens, posts, media, mediaTypeEnum, postMedia, likes, comments};
+
+module.exports = {users, refreshTokens, posts, media, mediaTypeEnum, postMedia, likes, comments, follows};
