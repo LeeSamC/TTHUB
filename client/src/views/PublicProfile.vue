@@ -10,6 +10,7 @@ const posts = ref([])
 
 const loading = ref(true)
 const postsLoading = ref(false)
+const followLoading = ref(false)
 
 const errorMessage = ref('')
 const postsError = ref('')
@@ -58,6 +59,37 @@ const loadPulicProfile = async () => {
 
     if(profile.value){
         await loadPost()
+    }
+}
+
+const toggleFollow = async () => {
+    if(!profile.value || followLoading.value) {
+        return
+    }
+
+    followLoading.value = true
+
+    try{
+        if(profile.value.isFollowing) {
+            await api.delete(`users/${profile.value.username}/follow`)
+
+            profile.value.isFollowing = false
+            profile.value.followerCount --
+        }else{
+            await api.post(`users/${profile.value.username}/follow`)
+
+            profile.value.isFollowing = true
+            profile.value.followerCount ++
+        }
+    }catch (error){
+        console.error('Follow/unfollow error', error)
+
+        console.error(
+            error.response?.data?.error ||
+            'Failed to update follow status'
+        )
+    }finally{
+        followLoading.value = false
     }
 }
 
@@ -116,15 +148,41 @@ watch(
                         </div>
                     </div>
 
-                    <div class="mt-4">
-                        <h1 class="text-2xl font-bold text-slate-900">
-                            {{ profile.firstName }}
-                            {{ profile.lastName }}
-                        </h1>
+                    <div class="mt-4 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                        <div>
+                            <h1 class="text-2xl font-bold text-slate-900">
+                                {{ profile.firstName }}
+                                {{ profile.lastName }}
+                            </h1>
 
-                        <p class="text-sm text-slate-500">
-                            @{{ profile.username }}
-                        </p>
+                            <p class="text-sm text-slate-500">
+                                @{{ profile.username }}
+                            </p>
+
+                        </div>
+
+                        <button
+                        @click="toggleFollow"
+                        :disabled="followLoading"
+                        class="px-5 py-2 rounded-lg font-medium transition disabled:opacity-50 disabled:cursor-not-allowed"
+                        :class="profile.isFollowing 
+                            ? 'bg-slate-200 text-slate-800 hover:bg-slate-300'
+                            : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                            "
+                        >
+
+                        <span v-if="followLoading">
+                            Loading...
+                        </span>
+
+                        <span v-else>
+                            {{ profile.isFollowing ? 'Unfollow': 'Follow' }}
+                        </span>
+
+                        </button>
+                        
+
+                        
                     </div>
 
                     <p v-if="profile.bio" class="mt-4 text-sm text-slate-600">
@@ -138,6 +196,24 @@ watch(
                             </p>
                             <p class="text-xs text-slate-500">
                                 Posts
+                            </p>
+                        </div>
+
+                        <div>
+                            <p class="text-lg font-bold text-slate-900" >
+                                {{ profile.followerCount }}
+                            </p>
+                            <p class="text-xs text-slate-500">
+                                Followers
+                            </p>
+                        </div>
+
+                        <div>
+                            <p class="text-lg font-bold text-slate-900" >
+                                {{ profile.followingCount }}
+                            </p>
+                            <p class="text-xs text-slate-500">
+                                Following
                             </p>
                         </div>
 
