@@ -31,9 +31,10 @@ const crypto = require('crypto')
 
 const {eq, and, isNull, desc, inArray, sql, asc} = require('drizzle-orm')
 const {db} = require('./db')
-const {users, refreshTokens, posts, media, postMedia, likes, comments, mediaTypeEnum} = require('./schema');
+const {users, refreshTokens, posts, media, postMedia, likes, comments, mediaTypeEnum, follows} = require('./schema');
 const { number} = require('drizzle-orm/pg-core');
 const { resourceLimits } = require('worker_threads')
+const { profile } = require('console')
 
 const app = express();
 
@@ -664,16 +665,17 @@ app.delete('/api/profile/delete', authenticateToken, async (req,res) => {
     }
 })
 
-app.get('/api/users/:username', async (req, res) => {
+app.get('/api/users/:username', optionalAuthenticateToken, async (req, res) => {
     const {username} = req.params
 
     try{
-        const result = await db.select({
+        const userResult = await db.select({
             userId: users.userId,
             firstName: users.firstName,
             lastName: users.lastName,
             username: users.username,
             bio: users.bio,
+            createdAt: users.createdAt,
             avatarStorageKey: media.storageKey,
 
             postCount: sql`
@@ -692,7 +694,24 @@ app.get('/api/users/:username', async (req, res) => {
                     WHERE${comments.userId}=${users.userId}
                     AND${comments.deletedAt} IS NULL
                 )
-            `.as('commentCount')
+            `.as('commentCount'),
+
+            followerCount: sql`
+                (
+                    SELECT COUNT(*)::int
+                    FROM ${follows}
+                    WHERE ${follows.followingId} = ${users.userId}
+                )
+            `,
+
+            followingCount: sql`
+                (
+                    SELECT COUNT(*)::int
+                    FROM ${follows}
+                    WHERE ${follows.followerId} = ${users.userId}
+                )
+            `
+
         })
         .from(users)
         .leftJoin(
@@ -704,31 +723,55 @@ app.get('/api/users/:username', async (req, res) => {
         )
         .limit(1)
 
-        if(result.length === 0){
-            return res.status(404).json({error:'User not found'})
+        const profileUser = userResult[0]
+
+        if(!profileUser){
+            return res.status(404).json({error: 'User not found'})
         }
 
-        const user = result[0]
 
-        const profile = {
-            userId: user.userId,
-            firstName: user.firstName,
-            lastName: user.lastName,
-            username: user.username,
-            bio: user.bio || '',
+        let avatarUrl = null
 
-            avatarUrl: user.avatarStorageKey
-                ? `${req.protocol}://${req.get('host')}/uploads/${user.avatarStorageKey}`
-                : null,
-            
-            postCount: user.postCount,
-            commentCount: user.commentCount,
-            isCurrentUser: req.user
-                ? req.user.userId === user.userId
-                : false
+        if(profileUser.avatarStorageKey) {
+            avatarUrl = `${req.protocol}://${req.get('host')}/uploads/${profileUser.avatarStorageKey}`
         }
 
-        return res.status(200).json({user: profile})
+        let isFollowing = false
+
+        if(req.user) {
+            const [followResult] = await db.select({
+                followerId: follows.followerId
+            })
+            .from(follows)
+            .where(
+                and(
+                    eq(follows.followerId, req.user.userId),
+                    eq(follows.followingId, profileUser.userId)
+                )
+            ).limit(1)
+
+            isFollowing = !!followResult
+        }
+
+        return res.status(200).json({user: {
+            userId: profileUser.userId,
+                firstName: profileUser.firstName,
+                lastName: profileUser.lastName,
+                username: profileUser.username,
+                bio: profileUser.bio,
+                createdAt: profileUser.createdAt,
+
+                avatarUrl,
+
+                postCount: Number(profileUser.postCount),
+                commentCount: Number(profileUser.commentCount),
+
+                followerCount: Number(profileUser.followerCount),
+                followingCount: Number(profileUser.followingCount),
+
+                isFollowing
+        }
+        })
 
     }catch (error) {
         console.error('Get public user error', error)
@@ -1889,5 +1932,247 @@ app.delete('/api/comments/:commentId', authenticateToken, async(req, res) => {
     }
 })
 
+
+app.post('/api/users/:username/follow', authenticateToken, async (req, res) => {
+    const {username} = req.params
+    const currentUserId = req.user.userId
+
+    try{
+        const [targetUser] = await db.select({
+            userId: users.userId,
+            username: users.username
+        })
+        .from(users)
+        .where(eq(users.username, username))
+        .limit(1)
+
+        if(!targetUser){
+            return res.status(404).json({error: 'User not found'})
+        }
+
+        if (targetUser.userId === currentUserId) {
+            return res.status(400).json({message:'Cannot follow yourself'})
+        }
+
+        const [existingFollow] = await db.select({
+            followerId: follows.followerId,
+            followingId: follows.followingId
+        })
+        .from(follows)
+        .where(
+            and(
+                eq(follows.followerId, currentUserId),
+                eq(follows.followingId, targetUser.userId)
+            )
+        ).limit(1)
+
+        if(existingFollow){
+            return res.status(409).json({error: 'You are already following this user'})
+        }
+
+        await db.insert(follows).values({
+            followerId: currentUserId,
+            followingId: targetUser.userId
+        })
+
+        return res.status(201).json({message: 'User followed successfully', isFollowing: true})
+    }catch (error) {
+        console.error('Follow user error',error)
+        return res.status(500).json({error: 'Failed to follow user'})
+    }
+})
+
+app.delete('/api/users/:username/follow', authenticateToken, async (req, res) => {
+    const {username} = req.params
+    const currentUserId = req.user.userId
+
+    try{
+        const [targetUser] = await db.select({
+            userId: users.userId,
+            username: users.username
+        }).from(users)
+        .where(eq(users.username, username))
+        .limit(1)
+
+        if(!targetUser){
+            return res.status(404).json({error: 'User not found'})
+        }
+
+        const deleteFollow = await db.delete(follows).where(
+            and(
+                eq(follows.followerId, currentUserId),
+                eq(follows.followingId, targetUser.userId)
+            )
+            
+        ).returning({
+            followerId: follows.followerId,
+            followingId: follows.followingId
+        })
+
+        if (deleteFollow.length === 0){
+            return res.status(404).json({error:'You are not following this user'})
+        }
+
+        return res.status(200).json({message: 'User unfollowed successfully', isFollowing: false})
+    }catch (error){
+        console.log('Unfollow user error:', error)
+        return res.status(500).json('Failed to unfollow user')
+    }
+})
+
+
+app.get('/api/users/:username/followers', async (req, res) => {
+    const {username} = req.params
+    const page = Math.max(parseInt(req.query.page) || 1, 1)
+    const pageSize = Math.min(Math.max(parseInt(req.query.pageSize) || 20, 1), 50)
+
+    const offset = ( page - 1) * pageSize
+
+    try{
+        const [targetUser] = await db.select({
+            userId: users.userId,
+            username: users.username
+        })
+        .from(users)
+        .where(eq(users.username, username))
+        .limit(1)
+
+        if(!targetUser) {
+            return res.status(404).json({error: 'User not found'})
+        }
+
+        const countResult = await db.select({
+            count: sql`COUNT(*)`
+        })
+        .from(follows)
+        .where(
+            eq(
+                follows.followingId,
+                targetUser.userId
+            )
+        )
+
+        const totalFollowers = Number(countResult[0].count)
+
+        const totalPages = Math.ceil(totalFollowers / pageSize)
+
+        const followerResult = await db.select({
+            userId: users.userId,
+            firstName: users.firstName,
+            lastName: users.lastName,
+            username: users.username,
+            bio: users.bio
+        })
+        .from(follows)
+        .innerJoin(
+            users,
+            eq(follows.followerId, users.userId)
+        )
+        .where(
+            follows.followingId, targetUser.userId
+        )
+        .orderBy(desc(follows.createdAt))
+        .limit(pageSize)
+        .offset(offset)
+
+        return res.status(200).json({
+            followers: followerResults,
+
+                pagination: {
+                    currentPage: page,
+                    pageSize,
+                    totalFollowers,
+                    totalPages,
+
+                    hasNextPage:
+                        page < totalPages,
+
+                    hasPreviousPage:
+                        page > 1
+                }
+        })
+    }catch (error) {
+        console.error('Get followers error', error)
+
+        return res.status(500).json({error: 'Failed to get followers'})
+    }
+})
+
+app.get('/api/users/:username/following', async(req, res) => {
+    const {username} = req.params
+    const page = Math.max(parseInt(req.query.page) || 1, 1)
+    const pageSize = Math.min(Math.max(parseInt(req.query.pageSize) || 20, 1), 50)
+
+    const offset = (page -  1) * pageSize
+
+    try{
+        const [targetUser] = await db.select({
+            userId: users.userId,
+            username: users.username
+        })
+        .from(users)
+        .where(eq(users.username, username))
+        .limit(1)
+
+        if(!targetUser) {
+            return res.status(404).json({error: 'User not found'})
+        }
+
+        const countResult = await db.select({
+            count: sql`COUNT(*)`
+        })
+        .from(follows)
+        .where(
+            eq(follows.followerId, targetUser.userId)
+        )
+
+        const totalFollowing = Number(
+            countResult[0].count
+        )
+
+        const totalPages = Math.ceil( totalFollowing / pageSize)
+
+        const followingResult = await db.select({
+            userId: users.userId,
+            firstName: users.firstName,
+            lastName: users.lastName,
+            username: users.username,
+            bio: users.bio
+        })
+        .from(follows)
+        .innerJoin(
+            users,
+            eq(follows.followingId, users.userId)
+        )
+        .where(
+            eq(
+                follows.followerId, targetUser.userId
+            )
+        )
+        .orderBy(desc(follows.createdAt))
+        .limit(pageSize)
+        .offset(offset)
+
+        return res.json({
+                following: followingResults,
+
+                pagination: {
+                    currentPage: page,
+                    pageSize,
+                    totalFollowing,
+                    totalPages,
+
+                    hasNextPage:
+                        page < totalPages,
+
+                    hasPreviousPage:
+                        page > 1
+                }
+            })
+    }catch (error) {
+        console.error('Get following error:',error)
+        return res.status(500).json({error: 'Failed to get following'})
+    }
+})
 
 module.exports = app
