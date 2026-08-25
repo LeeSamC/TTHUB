@@ -31,7 +31,7 @@ const crypto = require('crypto')
 
 const {eq, and, isNull, desc, inArray, sql, asc} = require('drizzle-orm')
 const {db} = require('./db')
-const {users, refreshTokens, posts, media, postMedia, likes, comments, mediaTypeEnum, follows} = require('./schema');
+const {users, refreshTokens, posts, media, postMedia, likes, comments, mediaTypeEnum, follows, notifications} = require('./schema');
 const { number} = require('drizzle-orm/pg-core');
 const { resourceLimits } = require('worker_threads')
 const { profile } = require('console')
@@ -1671,9 +1671,9 @@ app.post('/api/posts/:postId/like', authenticateToken, async (req, res) => {
     const userId = req.user.userId
 
     try{
-       const post = await db.select({postId: posts.postId}).from(posts).where(eq(posts.postId, postId)).limit(1)
+       const [post] = await db.select({postId: posts.postId, userId: posts.userId}).from(posts).where(eq(posts.postId, postId)).limit(1)
 
-       if(post.length === 0){
+       if(!post){
         return res.status(404).json({error: 'Post not found'})
        }
 
@@ -1692,6 +1692,14 @@ app.post('/api/posts/:postId/like', authenticateToken, async (req, res) => {
                         userId: userId,
                         postId: postId
                     }).returning()
+
+        await createNotification({
+            recipientId: post.userId,
+            actorId: userId,
+            type: 'like',
+            postId
+
+        })
         
         return res.status(200).json({message:'Post liked', like})
 
@@ -1761,14 +1769,16 @@ app.post('/api/posts/:postId/comments', authenticateToken, async(req, res) => {
     const {content, parentCommentId} = validation.data
 
     try{
-        const post = await db.select({postId: posts.postId}).from(posts).where(and(eq(posts.postId, postId), isNull(posts.deletedAt))).limit(1)
+        const [post] = await db.select({postId: posts.postId, userId: posts.userId}).from(posts).where(and(eq(posts.postId, postId), isNull(posts.deletedAt))).limit(1)
 
-        if(post.length === 0) {
+        if(!post) {
             return res.status(404).json({error: 'Post not found'})
         }
 
+        let parentComment = null
+
         if(parentCommentId) {
-            const parentComment = await db.select({commentId: comments.commentId, postId: comments.postId}).from(comments).where(
+            [parentComment] = await db.select({commentId: comments.commentId, postId: comments.postId, userId: comments.userId}).from(comments).where(
                                                     and(
                                                         eq(comments.commentId, parentCommentId),
                                                         eq(comments.postId, postId),
@@ -1776,12 +1786,36 @@ app.post('/api/posts/:postId/comments', authenticateToken, async(req, res) => {
                                                     )
                                             ).limit(1)
 
-            if(parentComment.length === 0) {
+            if(!parentComment) {
                 return res.status(404).json({error: 'Parent comment not found'})
             }
+
         }
 
         const [newComment] = await db.insert(comments).values({postId, userId, parentCommentId, content}).returning()
+
+        if(parentComment && parentComment.userId !== userId){
+
+            await createNotification({
+                recipientId: post.userId,
+                actorId: userId,
+                type: 'comment',
+                postId,
+                commentId: newComment.commentId
+            })
+        }
+
+        if(post.userId !== userId && (!parentComment || parentComment.userId !== post.userId)){
+            await createNotification({
+                recipientId: post.userId,
+                actorId: userId,
+                type: 'comment',
+                postId,
+                commentId: newComment.commentId
+            })
+        }
+
+       
 
         return res.status(200).json({message: parentCommentId ? 'Reply created successfully' : 'Comment created successfully', comment: newComment})
 
@@ -1973,6 +2007,12 @@ app.post('/api/users/:username/follow', authenticateToken, async (req, res) => {
         await db.insert(follows).values({
             followerId: currentUserId,
             followingId: targetUser.userId
+        })
+
+        await createNotification({
+            recipientId: targetUser.userId,
+            actorId: currentUserId,
+            type: 'follow'
         })
 
         return res.status(201).json({message: 'User followed successfully', isFollowing: true})
@@ -2173,6 +2213,172 @@ app.get('/api/users/:username/following', async(req, res) => {
         console.error('Get following error:',error)
         return res.status(500).json({error: 'Failed to get following'})
     }
+})
+
+
+const createNotification = async ({recipientId, actorId, type, postId = null, commentId = null}) => {
+
+    if(recipientId === actorId){
+        return
+    }
+
+    await db.insert(notifications).values({
+        recipientId,
+        actorId,
+        type,
+        postId,
+        commentId
+
+    })
+}
+
+app.get('/api/notifications', authenticateToken, async (req, res) => {
+    
+    try{
+        const notificationsResult = await db.select({
+            notificationId: notifications.notificationId,
+            type: notifications.type,
+            isRead: notifications.isRead,
+            createdAt: notifications.createdAt,
+            actorId: notifications.actorId,
+            actorFirstName: users.firstName,
+            actorLastName: users.lastName,
+            actorUsername: users.username,
+            postId: notifications.postId,
+            commentId: notifications.commentId
+        })
+        .from(notifications)
+        .innerJoin(
+            users,
+            eq(notifications.actorId, users.userId)
+        )
+        .where(eq(notifications.recipientId, req.user.userId))
+        .orderBy(desc(notifications.createdAt)
+        )
+        .limit(50)
+
+        const formattedNotifications = 
+            notificationsResult.map(notification => ({
+                notificationId:
+                        notification.notificationId,
+
+                    type:
+                        notification.type,
+
+                    isRead:
+                        notification.isRead,
+
+                    createdAt:
+                        notification.createdAt,
+
+                    actor: {
+                        userId:
+                            notification.actorId,
+
+                        firstName:
+                            notification.actorFirstName,
+
+                        lastName:
+                            notification.actorLastName,
+
+                        username:
+                            notification.actorUsername
+                    },
+
+                    postId:
+                        notification.postId,
+
+                    commentId:
+                        notification.commentId
+            }))
+        res.status(200).json({notifications: formattedNotifications})
+    }catch (error){
+        console.error('Get notifications error', error)
+        res.status(500).json({error:'Failed to get notifications'})
+    }
+})
+
+app.get('/api/notifications/unread-count', authenticateToken, async (req, res) => {
+
+    try{
+        const [result] = await db.select({
+            count: sql`COUNT(*)::int`
+        })
+        .from(notifications)
+        .where(
+            and(
+                eq(notifications.recipientId, req.user.userId),
+                eq(notifications.isRead, false)
+            )
+        )
+
+        res.status(200).json({count: Number(result.count)})
+    }catch (error) {
+        console.error('Get unread notification count error:', error)
+
+        res.status(500).json({error: 'Failed to get unread notification count'})
+    }
+})
+
+app.patch('/api/notifications/:notificationId/read', authenticateToken, async (req, res) => {
+    
+    try{
+        const [notification] = await db.update(notifications).set({isRead: true}).where(and(
+            eq(notifications.notificationId, req.params.notificationId),
+            eq(notifications.recipientId, req.user.userId)
+        )).returning({
+            notificationId: notifications.notificationId
+        })
+        
+        if(!notification){
+            return res.status(404).json({error: 'Notification not found'})
+        }
+
+        res.json({message: 'Notification marked as read'})
+    }catch (error){
+        console.error('Mark notification read error:',error)
+
+        res.status(500).json({
+            error: 'Failed to mark notification as read'
+        })
+    }
+})
+
+app.patch('/api/notifications/read-all', authenticateToken, async (req, res) => {
+
+    try{
+        await db
+                .update(notifications)
+                .set({
+                    isRead: true
+                })
+                .where(
+                    and(
+                        eq(
+                            notifications.recipientId,
+                            req.user.userId
+                        ),
+                        eq(
+                            notifications.isRead,
+                            false
+                        )
+                    )
+                )
+
+            res.json({
+                message: 'All notifications marked as read'
+            })
+    }catch (error) {
+        console.error(
+                'Mark all notifications read error:',
+                error
+            )
+
+            res.status(500).json({
+                error: 'Failed to mark notifications as read'
+            })
+    }
+
 })
 
 module.exports = app
