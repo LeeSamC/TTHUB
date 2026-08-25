@@ -1,9 +1,11 @@
 <script setup>
 import {ref, onMounted, watch} from 'vue'
+import { useAuthStore } from '../stores/auth'
 import {useRoute} from 'vue-router'
 import api from '../api/api'
 
 const route = useRoute()
+const authStore = useAuthStore()
 
 const profile = ref(null)
 const posts = ref([])
@@ -162,6 +164,7 @@ watch(
                         </div>
 
                         <button
+                        v-if="authStore.isAuthenticated && authStore.user?.username !== profile.username"
                         @click="toggleFollow"
                         :disabled="followLoading"
                         class="px-5 py-2 rounded-lg font-medium transition disabled:opacity-50 disabled:cursor-not-allowed"
