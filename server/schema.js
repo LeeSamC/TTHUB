@@ -1,4 +1,5 @@
 const { unique } = require('drizzle-orm/gel-core');
+const { time } = require('drizzle-orm/mysql-core');
 const { 
     pgTable, 
     uuid, 
@@ -121,5 +122,16 @@ const follows = pgTable('follows', {
 })
 )
 
+const notifications = pgTable('notification', {
+    notificationId: uuid('notification_id').defaultRandom().primaryKey(),
+    recipientId: uuid('recipient_id').notNull().references(() => users.userId, {onDelete: 'cascade'}),
+    actorId: uuid('actor_id').notNull().references(() => users.userId, {onDelete: 'cascade'}),
+    type: varchar('type', {length: 50}).notNull(),
+    postId: uuid('post_id').references(() => posts.postId, {onDelete: 'cascade'}),
+    commentId: uuid('comment_id').references(() => comments.commentId, {onDelete: 'cascade'}),
+    isRead: boolean('is_read').notNull().default(false),
+    createdAt: timestamp('created_at').notNull().defaultNow()
+})
 
-module.exports = {users, refreshTokens, posts, media, mediaTypeEnum, postMedia, likes, comments, follows};
+
+module.exports = {users, refreshTokens, posts, media, mediaTypeEnum, postMedia, likes, comments, follows, notifications};
