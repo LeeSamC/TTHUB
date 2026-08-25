@@ -3,6 +3,7 @@ import Login from '../views/Login.vue';
 import Register from '../views/Register.vue';
 import Profile from '../views/Profile.vue';
 import Home from '../views/Home.vue'
+import Notifications from '../views/Notification.vue';
 import api from '../api/api.js'
 
 import { useAuthStore } from '../stores/auth';
@@ -39,7 +40,15 @@ const routes = [
         path: '/profile/:username',
         name: 'public-profile',
         component: () => import('../views/PublicProfile.vue')
+    },
+
+    {
+        path: '/notifications',
+        component: Notifications,
+        meta: { requiresAuth: true}
     }
+
+
 ];
 
 //createWebHistoy create clean urls remove /#/
