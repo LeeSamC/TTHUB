@@ -2,6 +2,7 @@
 import {onMounted, ref} from 'vue'
 import {useRouter} from 'vue-router'
 import { useAuthStore } from '../stores/auth';
+import NotificationBell from '../components/NotificationBell.vue';
 
 const router = useRouter();
 const authStore = useAuthStore()
@@ -45,29 +46,86 @@ const handleLogout = async () => {
                     </nav>
                 </div>
 
-                <div>
-                    <div v-if="!authStore.isLoading">
-                        <template v-if="authStore.isAuthenticated">
-                            <button
-                                @click="handleLogout"
-                                :disabled="isLoggingOut"
-                                class="bg-indigo-700 hover:bg-indigo-800 text-white px-4 py-2 rounded-md text-sm font-medium transition disabled:opacity-50"
-                            >{{ isLoggingOut? "Logging out...": "Logout" }}</button>
-                        </template>
-                        <template v-else>
-                            <router-link 
-                                to="/login"
-                                class="bg-indigo-700 hover:bg-indigo-800 text-white px-4 py-2 rounded-md text-sm font-medium transition mr-2"
-                            >Login</router-link>
+                <div class="flex items-center gap-3">
 
-                            <router-link 
+                    <div v-if="!authStore.isLoading">
+
+                        <template v-if="authStore.isAuthenticated">
+
+                            <div class="flex items-center gap-3">
+
+                                <!-- Notifications -->
+
+                                <NotificationBell />
+
+                                <!-- Logout -->
+
+                                <button
+                                    @click="handleLogout"
+                                    :disabled="isLoggingOut"
+                                    class="bg-indigo-700
+                                        hover:bg-indigo-800
+                                        text-white
+                                        px-4 py-2
+                                        rounded-md
+                                        text-sm
+                                        font-medium
+                                        transition
+                                        disabled:opacity-50"
+                                >
+                                    {{
+                                        isLoggingOut
+                                            ? "Logging out..."
+                                            : "Logout"
+                                    }}
+                                </button>
+
+                            </div>
+
+                        </template>
+
+                        <template v-else>
+
+                            <router-link
+                                to="/login"
+                                class="bg-indigo-700
+                                    hover:bg-indigo-800
+                                    text-white
+                                    px-4 py-2
+                                    rounded-md
+                                    text-sm
+                                    font-medium
+                                    transition
+                                    mr-2"
+                            >
+                                Login
+                            </router-link>
+
+                            <router-link
                                 to="/register"
-                                class="bg-indigo-700 hover:bg-indigo-800 text-white px-4 py-2 rounded-md text-sm font-medium transition"
-                            >Register</router-link>
+                                class="bg-indigo-700
+                                    hover:bg-indigo-800
+                                    text-white
+                                    px-4 py-2
+                                    rounded-md
+                                    text-sm
+                                    font-medium
+                                    transition"
+                            >
+                                Register
+                            </router-link>
+
                         </template>
 
                     </div>
-                    <div v-else class="text-white text-sm">Loading</div>
+
+                    <div
+                        v-else
+                        class="text-white text-sm"
+                    >
+                        Loading
+                    </div>
+
                 </div>
 
                 
